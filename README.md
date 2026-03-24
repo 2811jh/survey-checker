@@ -128,6 +128,7 @@ py -3 survey_checker.py logic --id 91112 --json '[{"sourceLabel":"Q1","selectedO
 | `copy` | 复制问卷 | `py -3 survey_checker.py copy --id 91044` |
 | `import` | 从 txt 文件录入题目 | `py -3 survey_checker.py import --file "题目.txt" --id 91112` |
 | `add` | 从 JSON 新增题目 | `py -3 survey_checker.py add --id 91112 --json @questions.json` |
+| `clear` | 清空问卷题目 | `py -3 survey_checker.py clear --id 91112` |
 | `logic` | 设置逻辑规则 | `py -3 survey_checker.py logic --id 91112 --json '[...]'` |
 
 ---

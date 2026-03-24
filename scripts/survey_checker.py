@@ -849,6 +849,64 @@ class SurveyChecker:
         # 默认追加到末尾
         return len(questions)
 
+    # ── 清空题目 ────────────────────────────────────────────────────────
+
+    def clear_questions(self, survey_id, keep_imply=False):
+        """
+        清空问卷中的所有题目。
+        survey_id: 问卷 ID
+        keep_imply: 是否保留隐含题（type=imply 的 Y 题）
+        返回操作结果
+        """
+        if not self._ensure_auth():
+            return {"status": "error", "message": "认证无效"}
+
+        _log(f"Clearing questions from survey {survey_id} (keep_imply={keep_imply})...")
+
+        # 1. 获取当前完整数据
+        survey_data = self.get_survey_full(survey_id)
+        if not survey_data:
+            return {"status": "error", "message": "获取问卷数据失败"}
+
+        questions = survey_data.get("questions", [])
+        orig_count = len(questions)
+
+        # 2. 过滤题目
+        if keep_imply:
+            kept = [q for q in questions if q.get("type") == "imply"]
+            removed_count = orig_count - len(kept)
+            survey_data["questions"] = kept
+            _log(f"Keeping {len(kept)} imply questions, removing {removed_count}")
+        else:
+            removed_count = orig_count
+            survey_data["questions"] = []
+            _log(f"Removing all {removed_count} questions")
+
+        # 3. 锁定并保存
+        _log(f"Locking survey {survey_id}...")
+        self.lock_survey(survey_id)  # 锁定失败时仍尝试保存（可能已被自己锁定）
+
+        _log("Saving survey...")
+        save_result = self.save_survey(survey_data)
+        if save_result["status"] != "success":
+            return {"status": "error", "message": save_result["message"]}
+
+        # 4. 验证
+        _log("Verifying (waiting 3s)...")
+        time.sleep(3)
+        verify_data = self.get_survey_full(survey_id)
+        new_count = len(verify_data.get("questions", [])) if verify_data else 0
+        _log(f"Questions: {orig_count} → {new_count}")
+
+        return {
+            "status": "success",
+            "message": f"清空完成：删除 {removed_count} 道题目" + (f"，保留 {new_count} 道隐含题" if keep_imply else ""),
+            "survey_id": survey_id,
+            "original_count": orig_count,
+            "removed_count": removed_count,
+            "remaining_count": new_count,
+        }
+
     def add_questions(self, survey_id, question_specs):
         """
         向问卷中新增题目。
@@ -2125,6 +2183,12 @@ def main():
     import_p.add_argument("--dry-run", action="store_true",
                           help="仅解析输出 JSON，不录入问卷")
 
+    # ── clear: 清空问卷题目 ──────────────────────────────────────────
+    clear_p = subparsers.add_parser("clear", help="清空问卷所有题目")
+    clear_p.add_argument("--id", type=int, required=True, help="问卷 ID")
+    clear_p.add_argument("--keep-imply", action="store_true",
+                         help="保留隐含题（Y题），仅清空其他题目")
+
     args = parser.parse_args()
     if not args.command:
         parser.print_help()
@@ -2207,6 +2271,10 @@ def main():
         if not isinstance(rules, list):
             rules = [rules]
         result = checker.set_logic_rules(args.id, rules)
+        _json_output(result)
+
+    elif args.command == "clear":
+        result = checker.clear_questions(args.id, keep_imply=args.keep_imply)
         _json_output(result)
 
     elif args.command == "import":
