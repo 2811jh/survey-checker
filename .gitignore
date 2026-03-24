@@ -1,0 +1,14 @@
+# Browser profile (contains login sessions, cookies, cache)
+scripts/.browser_profile/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Config with cookies (sensitive)
+scripts/config.json
+
+# OS files
+.DS_Store
+Thumbs.db
