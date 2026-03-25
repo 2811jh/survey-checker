@@ -408,6 +408,71 @@ class SurveyChecker:
             "edit_url": f"{BASE_URL}/index.html#/edit/{new_id}" if new_id else None,
         }
 
+    # ── 创建新问卷 ──────────────────────────────────────────────────────
+
+    def create_survey(self, name, game_name, lang="简体中文", delivery_range=0,
+                      direct_area=0, custom_url_type=0, remark=""):
+        """
+        从零创建一个新的空白问卷。
+        name: 问卷名称
+        game_name: 所属游戏，如 "第五人格(h55)"、"我的世界手游版(g79)"
+        lang: 问卷语言，默认 "简体中文"；可选 "英文"、"繁體中文"、"日本語" 等
+        delivery_range: 投放范围，0=全网络，1=仅公司内网
+        direct_area: 投放区域，0=全球，1=欧洲
+        custom_url_type: 问卷URL类型，0=系统生成，1=自定义
+        remark: 备注
+        返回: {"status":"success", "new_id": 新问卷ID, ...}
+        """
+        if not self._ensure_auth():
+            return {"status": "error", "message": "认证无效，自动刷新失败。"}
+
+        default_lang_map = {
+            "简体中文": "cn", "英文": "en", "繁體中文": "tw",
+            "日本語": "ja", "한국어": "ko",
+        }
+        default_lang = default_lang_map.get(lang, "cn")
+
+        payload = {
+            "surveyName": name,
+            "type": 0,              # 0=普通问卷
+            "deliveryRange": delivery_range,
+            "customUrlType": custom_url_type,
+            "customUrl": "",
+            "lang": lang,
+            "defaultLang": default_lang,
+            "groupId": -1,
+            "groupList": [],
+            "remark": remark,
+            "gameName": game_name,
+            "directArea": direct_area,
+            "surveyExtraJsonStruct": {"surveyCheckUser": {"uid": ""}},
+        }
+
+        _log(f"Creating new survey '{name}' for game '{game_name}'...")
+        resp = self.session.post(f"{BASE_URL}/view/survey/add", json=payload)
+        data = resp.json()
+
+        if data.get("resultCode") != 100:
+            return {
+                "status": "error",
+                "message": f"创建失败: {data.get('resultDesc', '未知错误')}",
+            }
+
+        resp_data = data.get("data", {})
+        new_id = resp_data.get("id")
+
+        _log(f"Create successful! New survey ID: {new_id}")
+        return {
+            "status": "success",
+            "message": "创建成功",
+            "new_id": new_id,
+            "new_name": name,
+            "game_name": game_name,
+            "edit_url": f"{BASE_URL}/index.html#/edit/{new_id}" if new_id else None,
+            "survey_url": resp_data.get("surveyUrl"),
+            "preview_url": resp_data.get("previewUrl"),
+        }
+
     # ── 解析题目文件 → JSON ──────────────────────────────────────────────
 
     @staticmethod
@@ -2226,6 +2291,18 @@ def main():
     copy_p.add_argument("--name", type=str, default=None,
                         help="新问卷名称（默认：原名称-副本）")
 
+    # ── create: 创建新问卷 ────────────────────────────────────────────
+    create_p = subparsers.add_parser("create", help="创建新的空白问卷")
+    create_p.add_argument("--name", type=str, required=True, help="问卷名称")
+    create_p.add_argument("--game", type=str, required=True,
+                          help="所属游戏，如 '第五人格(h55)'、'我的世界手游版(g79)'")
+    create_p.add_argument("--lang", type=str, default="简体中文",
+                          help="问卷语言（默认：简体中文）。可选：英文、繁體中文、日本語、한국어")
+    create_p.add_argument("--internal", action="store_true",
+                          help="仅公司内网投放（默认：全网络）")
+    create_p.add_argument("--europe", action="store_true",
+                          help="投放区域为欧洲（默认：全球）")
+
     # ── add: 新增题目 ─────────────────────────────────────────────────
     add_p = subparsers.add_parser("add", help="向问卷新增题目")
     add_p.add_argument("--id", type=int, required=True, help="问卷 ID")
@@ -2309,6 +2386,16 @@ def main():
 
     elif args.command == "copy":
         result = checker.copy_survey(args.id, new_name=args.name)
+        _json_output(result)
+
+    elif args.command == "create":
+        result = checker.create_survey(
+            name=args.name,
+            game_name=args.game,
+            lang=args.lang,
+            delivery_range=1 if args.internal else 0,
+            direct_area=1 if args.europe else 0,
+        )
         _json_output(result)
 
     elif args.command == "add":
