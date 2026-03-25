@@ -591,7 +591,9 @@ class SurveyChecker:
                     else:
                         opts.append(ol)
                 spec["options"] = opts
-                if len(opts) >= 8:
+                if len(opts) >= 20:
+                    spec["layout"] = 3
+                elif len(opts) >= 8:
                     spec["layout"] = 2
                 if q["type"] == "checkbox":
                     spec["random"] = 1
@@ -1809,6 +1811,19 @@ class SurveyChecker:
                                     "new_title": cleaned,
                                 })
                             break  # 每个子题目只报一次
+
+            # ── R8: "其他"选项必须开启输入框 (hasOther=1) ─────────────
+            if qtype in ("checkbox", "radio"):
+                for o in opts:
+                    otxt = _strip_html(o.get("text", ""))
+                    if any(kw == otxt.strip() for kw in self.OTHER_KEYWORDS):
+                        if o.get("hasOther", 0) != 1:
+                            issues.append({
+                                "rule": "R8", "question": label,
+                                "desc": f"选项'{otxt[:20]}' hasOther=0 → 应开启输入框 hasOther=1",
+                                "title": title_text,
+                            })
+                            option_mods.append({"text": otxt[:30], "hasOther": 1})
 
             # 汇总本题修改
             if changes or option_mods:
