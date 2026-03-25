@@ -668,7 +668,7 @@ class SurveyChecker:
                 "displayForm": 0,
                 "levels": None if qtype in ("star",) else ["", "选项描述"],
                 "groups": None if qtype in ("star",) else [],
-                "logic": [],
+                "logic": [{"options": [], "questions": [], "subQuestions": [], "controlSubQuestions": "{}"}],
                 "tag": "",
                 "referType": 0,
                 "questionLang": "",
