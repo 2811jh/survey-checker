@@ -342,8 +342,9 @@ class SurveyChecker:
         delivery_range = source_data.get("deliveryRange", 0)
         lang = source_data.get("lang", "简体中文")
         default_lang = source_data.get("defaultLang")
-        group_id = source_data.get("groupId", -1)
-        group_list = source_data.get("groupList", [])
+        # 强制 groupId=0，不继承源问卷的协作群（-1 会加入系统默认协作群）
+        group_id = 0
+        group_list = []
         remark = source_data.get("remark", "")
         direct_area = source_data.get("directArea", 0)
         custom_url_type = source_data.get("customUrlType", 0)
@@ -440,7 +441,7 @@ class SurveyChecker:
             "customUrl": "",
             "lang": lang,
             "defaultLang": default_lang,
-            "groupId": -1,
+            "groupId": 0,
             "groupList": [],
             "remark": remark,
             "gameName": game_name,
