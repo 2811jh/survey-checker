@@ -652,7 +652,7 @@ class SurveyChecker:
         if template:
             q = template
         else:
-            # 最小骨架（参照 Survey_Question_Type_Mapping.md）
+            # 完整骨架 — 包含前端编辑器和预览组件所需的全部字段
             q = {
                 "type": qtype,
                 "title": "",
@@ -662,20 +662,38 @@ class SurveyChecker:
                 "hidden": 0,
                 "random": 0,
                 "randomColumn": 0,
-                "maxRow": 1,
+                "maxRow": 3 if qtype == "blank" else 1,
                 "maxLength": -1,
                 "maxShowLength": -1,
                 "minLength": -1,
-                "layout": 0 if qtype in ("star", "rect-star", "paging") else 1,
+                "layout": 0 if qtype in ("star", "paging") else 1,
                 "displayForm": 0,
-                "levels": None if qtype in ("star",) else ["", "选项描述"],
-                "groups": None if qtype in ("star",) else [],
+                "levels": None if qtype == "star" else ["", ""],
+                "groups": None if qtype == "star" else [],
                 "logic": [{"options": [], "questions": [], "subQuestions": [], "controlSubQuestions": "{}"}],
                 "tag": "",
+                "tagCustom": "",
                 "referType": 0,
                 "questionLang": "",
                 "mark": 0,
                 "zoom": 1,
+                "fixFirstLine": 1,
+                "validate": 0,
+                "level": 0,
+                "score": 10,
+                "starType": 1,
+                "star": 1,
+                "starEnd": 5,
+                "startDesc": "",
+                "middleDesc": "",
+                "endDesc": "",
+                "enrollable": 0,
+                "nps": 0,
+                "openScore": 1,
+                "area": 1,
+                "dataTrend": "",
+                "noRandom": 0,
+                "placeholder": None,
             }
 
         # 生成新的唯一 ID
@@ -689,6 +707,28 @@ class SurveyChecker:
                        "placeholder", "hidden", "randomColumn", "displayForm"]:
             if field in spec:
                 q[field] = spec[field]
+
+        # 隐含题专属字段
+        if qtype == "imply":
+            q["hidden"] = 0          # 隐含题在 API 中 hidden=0
+            q["required"] = 1         # 隐含题 required=1
+            q["level"] = 1            # 隐含题 level=1
+            q["layout"] = 0
+            q["levels"] = None
+            q["groups"] = None
+            q["tag"] = None
+            q["mark"] = None
+            q["questionLang"] = None
+            q["fixFirstLine"] = 0
+            # 清除隐含题不需要的字段
+            for _f in ["score", "starType", "star", "starEnd", "startDesc",
+                        "middleDesc", "endDesc", "enrollable", "tagCustom", "validate"]:
+                q.pop(_f, None)
+            # 设置变量名（关键！缺少此字段会导致预览/提交失败）
+            if "varName" in spec:
+                q["variableName"] = spec["varName"]
+            if "varType" in spec:
+                q["level"] = int(spec["varType"]) if spec["varType"] else 1
 
         # 量表题专属字段
         for field in ["startDesc", "middleDesc", "endDesc"]:
