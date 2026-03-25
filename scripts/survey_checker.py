@@ -708,6 +708,12 @@ class SurveyChecker:
             if field in spec:
                 q[field] = spec[field]
 
+        # 多选题布局同步：layout 和 maxRow 必须一致（前端预览读 maxRow）
+        if qtype in ("checkbox", "radio") and "layout" in spec:
+            layout_val = spec["layout"]
+            if layout_val in (2, 3):
+                q["maxRow"] = layout_val
+
         # 隐含题专属字段
         if qtype == "imply":
             q["hidden"] = 0          # 隐含题在 API 中 hidden=0
@@ -1753,6 +1759,7 @@ class SurveyChecker:
                         "title": title_text,
                     })
                     changes["layout"] = target_layout
+                    changes["maxRow"] = target_layout  # 前端预览读 maxRow，必须同步
 
             # ── R2: 多选题 random=1 + 其他/互斥项 noRandom=1 ─────────
             if qtype == "checkbox":
