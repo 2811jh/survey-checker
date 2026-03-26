@@ -342,8 +342,9 @@ class SurveyChecker:
         delivery_range = source_data.get("deliveryRange", 0)
         lang = source_data.get("lang", "简体中文")
         default_lang = source_data.get("defaultLang")
-        group_id = source_data.get("groupId", -1)
-        group_list = source_data.get("groupList", [])
+        # groupId=-1 表示私有问卷（仅创建者可见），0 表示公开（全公司可见）
+        group_id = -1
+        group_list = []
         remark = source_data.get("remark", "")
         direct_area = source_data.get("directArea", 0)
         custom_url_type = source_data.get("customUrlType", 0)
@@ -406,6 +407,71 @@ class SurveyChecker:
             "new_id": new_id,
             "new_name": new_name,
             "edit_url": f"{BASE_URL}/index.html#/edit/{new_id}" if new_id else None,
+        }
+
+    # ── 创建新问卷 ──────────────────────────────────────────────────────
+
+    def create_survey(self, name, game_name, lang="简体中文", delivery_range=0,
+                      direct_area=0, custom_url_type=0, remark=""):
+        """
+        从零创建一个新的空白问卷。
+        name: 问卷名称
+        game_name: 所属游戏，如 "第五人格(h55)"、"我的世界手游版(g79)"
+        lang: 问卷语言，默认 "简体中文"；可选 "英文"、"繁體中文"、"日本語" 等
+        delivery_range: 投放范围，0=全网络，1=仅公司内网
+        direct_area: 投放区域，0=全球，1=欧洲
+        custom_url_type: 问卷URL类型，0=系统生成，1=自定义
+        remark: 备注
+        返回: {"status":"success", "new_id": 新问卷ID, ...}
+        """
+        if not self._ensure_auth():
+            return {"status": "error", "message": "认证无效，自动刷新失败。"}
+
+        default_lang_map = {
+            "简体中文": "cn", "英文": "en", "繁體中文": "tw",
+            "日本語": "ja", "한국어": "ko",
+        }
+        default_lang = default_lang_map.get(lang, "cn")
+
+        payload = {
+            "surveyName": name,
+            "type": 0,              # 0=普通问卷
+            "deliveryRange": delivery_range,
+            "customUrlType": custom_url_type,
+            "customUrl": "",
+            "lang": lang,
+            "defaultLang": default_lang,
+            "groupId": -1,
+            "groupList": [],
+            "remark": remark,
+            "gameName": game_name,
+            "directArea": direct_area,
+            "surveyExtraJsonStruct": {"surveyCheckUser": {"uid": ""}},
+        }
+
+        _log(f"Creating new survey '{name}' for game '{game_name}'...")
+        resp = self.session.post(f"{BASE_URL}/view/survey/add", json=payload)
+        data = resp.json()
+
+        if data.get("resultCode") != 100:
+            return {
+                "status": "error",
+                "message": f"创建失败: {data.get('resultDesc', '未知错误')}",
+            }
+
+        resp_data = data.get("data", {})
+        new_id = resp_data.get("id")
+
+        _log(f"Create successful! New survey ID: {new_id}")
+        return {
+            "status": "success",
+            "message": "创建成功",
+            "new_id": new_id,
+            "new_name": name,
+            "game_name": game_name,
+            "edit_url": f"{BASE_URL}/index.html#/edit/{new_id}" if new_id else None,
+            "survey_url": resp_data.get("surveyUrl"),
+            "preview_url": resp_data.get("previewUrl"),
         }
 
     # ── 解析题目文件 → JSON ──────────────────────────────────────────────
@@ -652,7 +718,7 @@ class SurveyChecker:
         if template:
             q = template
         else:
-            # 最小骨架（参照 Survey_Question_Type_Mapping.md）
+            # 完整骨架 — 包含前端编辑器和预览组件所需的全部字段
             q = {
                 "type": qtype,
                 "title": "",
@@ -662,20 +728,38 @@ class SurveyChecker:
                 "hidden": 0,
                 "random": 0,
                 "randomColumn": 0,
-                "maxRow": 1,
+                "maxRow": 3 if qtype == "blank" else 1,
                 "maxLength": -1,
                 "maxShowLength": -1,
                 "minLength": -1,
-                "layout": 0 if qtype in ("star", "rect-star", "paging") else 1,
+                "layout": 0 if qtype in ("star", "paging") else 1,
                 "displayForm": 0,
-                "levels": None if qtype in ("star",) else ["", "选项描述"],
-                "groups": None if qtype in ("star",) else [],
+                "levels": None if qtype == "star" else ["", ""],
+                "groups": None if qtype == "star" else [],
                 "logic": [{"options": [], "questions": [], "subQuestions": [], "controlSubQuestions": "{}"}],
                 "tag": "",
+                "tagCustom": "",
                 "referType": 0,
                 "questionLang": "",
                 "mark": 0,
                 "zoom": 1,
+                "fixFirstLine": 1,
+                "validate": 0,
+                "level": 0,
+                "score": 10,
+                "starType": 1,
+                "star": 1,
+                "starEnd": 5,
+                "startDesc": "",
+                "middleDesc": "",
+                "endDesc": "",
+                "enrollable": 0,
+                "nps": 0,
+                "openScore": 1,
+                "area": 1,
+                "dataTrend": "",
+                "noRandom": 0,
+                "placeholder": None,
             }
 
         # 生成新的唯一 ID
@@ -689,6 +773,34 @@ class SurveyChecker:
                        "placeholder", "hidden", "randomColumn", "displayForm"]:
             if field in spec:
                 q[field] = spec[field]
+
+        # 多选题布局同步：layout 和 maxRow 必须一致（前端预览读 maxRow）
+        if qtype in ("checkbox", "radio") and "layout" in spec:
+            layout_val = spec["layout"]
+            if layout_val in (2, 3):
+                q["maxRow"] = layout_val
+
+        # 隐含题专属字段
+        if qtype == "imply":
+            q["hidden"] = 0          # 隐含题在 API 中 hidden=0
+            q["required"] = 1         # 隐含题 required=1
+            q["level"] = 1            # 隐含题 level=1
+            q["layout"] = 0
+            q["levels"] = None
+            q["groups"] = None
+            q["tag"] = None
+            q["mark"] = None
+            q["questionLang"] = None
+            q["fixFirstLine"] = 0
+            # 清除隐含题不需要的字段
+            for _f in ["score", "starType", "star", "starEnd", "startDesc",
+                        "middleDesc", "endDesc", "enrollable", "tagCustom", "validate"]:
+                q.pop(_f, None)
+            # 设置变量名（关键！缺少此字段会导致预览/提交失败）
+            if "varName" in spec:
+                q["variableName"] = spec["varName"]
+            if "varType" in spec:
+                q["level"] = int(spec["varType"]) if spec["varType"] else 1
 
         # 量表题专属字段
         for field in ["startDesc", "middleDesc", "endDesc"]:
@@ -1713,6 +1825,7 @@ class SurveyChecker:
                         "title": title_text,
                     })
                     changes["layout"] = target_layout
+                    changes["maxRow"] = target_layout  # 前端预览读 maxRow，必须同步
 
             # ── R2: 多选题 random=1 + 其他/互斥项 noRandom=1 ─────────
             if qtype == "checkbox":
@@ -2179,6 +2292,18 @@ def main():
     copy_p.add_argument("--name", type=str, default=None,
                         help="新问卷名称（默认：原名称-副本）")
 
+    # ── create: 创建新问卷 ────────────────────────────────────────────
+    create_p = subparsers.add_parser("create", help="创建新的空白问卷")
+    create_p.add_argument("--name", type=str, required=True, help="问卷名称")
+    create_p.add_argument("--game", type=str, required=True,
+                          help="所属游戏，如 '第五人格(h55)'、'我的世界手游版(g79)'")
+    create_p.add_argument("--lang", type=str, default="简体中文",
+                          help="问卷语言（默认：简体中文）。可选：英文、繁體中文、日本語、한국어")
+    create_p.add_argument("--internal", action="store_true",
+                          help="仅公司内网投放（默认：全网络）")
+    create_p.add_argument("--europe", action="store_true",
+                          help="投放区域为欧洲（默认：全球）")
+
     # ── add: 新增题目 ─────────────────────────────────────────────────
     add_p = subparsers.add_parser("add", help="向问卷新增题目")
     add_p.add_argument("--id", type=int, required=True, help="问卷 ID")
@@ -2262,6 +2387,16 @@ def main():
 
     elif args.command == "copy":
         result = checker.copy_survey(args.id, new_name=args.name)
+        _json_output(result)
+
+    elif args.command == "create":
+        result = checker.create_survey(
+            name=args.name,
+            game_name=args.game,
+            lang=args.lang,
+            delivery_range=1 if args.internal else 0,
+            direct_area=1 if args.europe else 0,
+        )
         _json_output(result)
 
     elif args.command == "add":
