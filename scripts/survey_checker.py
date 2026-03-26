@@ -30,10 +30,36 @@ from datetime import datetime
 
 # ─── 常量配置 ────────────────────────────────────────────────────────────────
 
-BASE_URL = "https://survey-game.163.com"
+# 双平台支持：国内 (cn) / 国外 (global)
+PLATFORMS = {
+    "cn": {
+        "label": "国内",
+        "base_url": "https://survey-game.163.com",
+        "cookie_domain": "survey-game.163.com",
+        "target_cookies": {"SURVEY_TOKEN", "JSESSIONID", "P_INFO"},
+        "required_cookies": {"SURVEY_TOKEN", "JSESSIONID"},
+    },
+    "global": {
+        "label": "国外",
+        "base_url": "https://survey-game.easebar.com",
+        "cookie_domain": "survey-game.easebar.com",
+        "target_cookies": {"oversea-online_SURVEY_TOKEN", "SURVEY_TOKEN", "JSESSIONID", "P_INFO"},
+        "required_cookies": {"oversea-online_SURVEY_TOKEN"},
+    },
+}
+DEFAULT_PLATFORM = "cn"
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-CONFIG_FILE = os.path.join(SCRIPT_DIR, "config.json")
-PROFILE_DIR = os.path.join(SCRIPT_DIR, ".browser_profile")
+
+def _config_file(platform="cn"):
+    if platform == "cn":
+        return os.path.join(SCRIPT_DIR, "config.json")
+    return os.path.join(SCRIPT_DIR, f"config_{platform}.json")
+
+def _profile_dir(platform="cn"):
+    if platform == "cn":
+        return os.path.join(SCRIPT_DIR, ".browser_profile")
+    return os.path.join(SCRIPT_DIR, f".browser_profile_{platform}")
 
 # API 端点
 API_SURVEY_LIST = "/view/survey/list"
@@ -44,21 +70,28 @@ API_SURVEY_SAVE = "/view/survey/save"
 API_SURVEY_LOCK = "/view/survey/set_lock"
 API_SURVEY_COPY = "/view/template/survey/quote"
 
-# 需要提取的 Cookie 名称
-TARGET_COOKIES = {"SURVEY_TOKEN", "JSESSIONID", "P_INFO"}
+# 需要提取的 Cookie 名称（向后兼容）
+TARGET_COOKIES = {"SURVEY_TOKEN", "oversea-online_SURVEY_TOKEN", "JSESSIONID", "P_INFO"}
 
-DEFAULT_HEADERS = {
-    "accept": "application/json, text/javascript, */*; q=0.01",
-    "accept-language": "zh-CN,zh;q=0.9,en;q=0.8",
-    "content-type": "application/json",
-    "origin": BASE_URL,
-    "referer": f"{BASE_URL}/index.html",
-    "x-requested-with": "XMLHttpRequest",
-    "user-agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 Edg/145.0.0.0"
-    ),
-}
+def _make_headers(base_url):
+    return {
+        "accept": "application/json, text/javascript, */*; q=0.01",
+        "accept-language": "zh-CN,zh;q=0.9,en;q=0.8",
+        "content-type": "application/json",
+        "origin": base_url,
+        "referer": f"{base_url}/index.html",
+        "x-requested-with": "XMLHttpRequest",
+        "user-agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 Edg/145.0.0.0"
+        ),
+    }
+
+# 向后兼容
+BASE_URL = PLATFORMS[DEFAULT_PLATFORM]["base_url"]
+CONFIG_FILE = _config_file(DEFAULT_PLATFORM)
+PROFILE_DIR = os.path.join(SCRIPT_DIR, ".browser_profile")
+DEFAULT_HEADERS = _make_headers(BASE_URL)
 
 
 # ─── 辅助函数 ────────────────────────────────────────────────────────────────
@@ -86,7 +119,7 @@ def _gen_id(prefix="q"):
 
 # ─── Cookie 自动刷新 ─────────────────────────────────────────────────────────
 
-def refresh_cookie(timeout=300):
+def refresh_cookie(timeout=300, platform="cn"):
     """
     自动刷新 Cookie（与 survey_download 相同机制）。
     1. 打开浏览器访问问卷系统
@@ -104,18 +137,25 @@ def refresh_cookie(timeout=300):
         _log("  playwright install chromium")
         return False
 
+    plat = PLATFORMS[platform]
+    base_url = plat["base_url"]
+    profile_dir = _profile_dir(platform)
+    config_file = _config_file(platform)
+    target_cookies = plat["target_cookies"]
+    required_cookies = plat["required_cookies"]
+    _log(f"Platform: {plat['label']} ({base_url})")
     _log("Launching browser...")
     with sync_playwright() as p:
         # 使用持久化上下文，保留登录 session
         context = p.chromium.launch_persistent_context(
-            user_data_dir=PROFILE_DIR,
+            user_data_dir=profile_dir,
             channel="msedge",
             headless=False,
             args=["--disable-blink-features=AutomationControlled"],
         )
 
         page = context.pages[0] if context.pages else context.new_page()
-        survey_url = f"{BASE_URL}/index.html#/surveylist"
+        survey_url = f"{base_url}/index.html#/surveylist"
         _log(f"Navigating to {survey_url}")
         page.goto(survey_url, wait_until="domcontentloaded")
 
@@ -127,35 +167,20 @@ def refresh_cookie(timeout=300):
             cookies = context.cookies()
             cookie_dict = {}
             for c in cookies:
-                if c["name"] in TARGET_COOKIES:
+                if c["name"] in target_cookies:
                     cookie_dict[c["name"]] = c["value"]
 
-            if "SURVEY_TOKEN" in cookie_dict and "JSESSIONID" in cookie_dict:
-                _log("Detected cookies, verifying...")
-                try:
-                    resp = page.evaluate("""async () => {
-                        const r = await fetch('/view/survey/list', {
-                            method: 'POST',
-                            headers: {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'},
-                            body: JSON.stringify({pageNo:1,surveyName:"",status:"-1",deliveryRange:-1,type:-1,groupId:-1,groupUser:-1,gameName:""})
-                        });
-                        return await r.json();
-                    }""")
-                    if resp.get("resultCode") == 100:
-                        _log("Cookies verified successfully!")
-                        config = {
-                            "cookies": cookie_dict,
-                            "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-                        }
-                        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-                            json.dump(config, f, ensure_ascii=False, indent=2)
-                        _log(f"Cookies saved to {CONFIG_FILE}")
-                        context.close()
-                        return True
-                    else:
-                        _log("Cookie detected but verification failed, waiting...")
-                except Exception:
-                    pass
+            if required_cookies.issubset(cookie_dict.keys()):
+                _log("Detected required cookies, saving...")
+                config = {
+                    "cookies": cookie_dict,
+                    "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                }
+                with open(config_file, "w", encoding="utf-8") as f:
+                    json.dump(config, f, ensure_ascii=False, indent=2)
+                _log(f"Cookies saved to {config_file}")
+                context.close()
+                return True
 
             time.sleep(2)
             elapsed = int(time.time() - start_time)
@@ -170,29 +195,38 @@ def refresh_cookie(timeout=300):
 # ─── 核心类 ──────────────────────────────────────────────────────────────────
 
 class SurveyChecker:
-    """网易问卷内容抓取器"""
+    """网易问卷内容抓取器（支持国内/国外双平台）"""
 
-    def __init__(self):
+    def __init__(self, platform="cn"):
+        if platform not in PLATFORMS:
+            raise ValueError(f"Unknown platform '{platform}'. Choose from: {list(PLATFORMS.keys())}")
+        self.platform = platform
+        plat = PLATFORMS[platform]
+        self.base_url = plat["base_url"]
+        self.cookie_domain = plat["cookie_domain"]
+        self.platform_label = plat["label"]
+        _log(f"Platform: {self.platform_label} ({self.base_url})")
         self.session = requests.Session()
-        self.session.headers.update(DEFAULT_HEADERS)
+        self.session.headers.update(_make_headers(self.base_url))
         self._load_config()
 
     # ── Cookie 管理 ──────────────────────────────────────────────────────
 
     def _load_config(self):
         """从 config.json 加载 Cookie"""
-        if not os.path.exists(CONFIG_FILE):
+        cfg = _config_file(self.platform)
+        if not os.path.exists(cfg):
             return False
-        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+        with open(cfg, "r", encoding="utf-8") as f:
             config = json.load(f)
         for name, value in config.get("cookies", {}).items():
-            self.session.cookies.set(name, value, domain="survey-game.163.com")
+            self.session.cookies.set(name, value, domain=self.cookie_domain)
         return True
 
     def _auto_refresh_cookie(self):
         """自动刷新 Cookie，刷新后重新加载"""
         _log("Attempting auto-refresh cookie...")
-        success = refresh_cookie(timeout=300)
+        success = refresh_cookie(timeout=300, platform=self.platform)
         if success:
             self._load_config()
         return success
@@ -209,42 +243,45 @@ class SurveyChecker:
     # ── 认证检查 ─────────────────────────────────────────────────────────
 
     def check_auth(self):
-        """检查 Cookie 是否有效"""
-        try:
-            resp = self.session.post(
-                f"{BASE_URL}{API_SURVEY_LIST}",
-                json={
-                    "pageNo": 1, "surveyName": "", "status": "-1",
-                    "deliveryRange": -1, "type": -1, "groupId": -1,
-                    "groupUser": -1, "gameName": "",
-                },
-            )
-            data = resp.json()
-            return data.get("resultCode") == 100
-        except Exception as e:
-            _log(f"Auth check failed: {e}")
-            return False
+        """检查 Cookie 是否有效（自动尝试多个 payload 适配不同平台）"""
+        payloads = [
+            {"pageNo": 1, "surveyName": "", "status": "-1",
+             "deliveryRange": -1, "type": -1, "groupId": -1,
+             "groupUser": -1, "gameName": ""},
+            {"pageNo": 1, "surveyName": "", "status": "0", "gameName": ""},
+        ]
+        for payload in payloads:
+            try:
+                resp = self.session.post(f"{self.base_url}{API_SURVEY_LIST}", json=payload)
+                data = resp.json()
+                if data.get("resultCode") == 100:
+                    return True
+            except Exception as e:
+                _log(f"Auth check failed: {e}")
+        return False
 
     # ── 问卷搜索 ─────────────────────────────────────────────────────────
 
     def search_surveys(self, name="", page=1):
-        """按名称搜索问卷列表"""
-        resp = self.session.post(
-            f"{BASE_URL}{API_SURVEY_LIST}",
-            json={
-                "pageNo": page,
-                "surveyName": name,
-                "status": "-1",
-                "deliveryRange": -1,
-                "type": -1,
-                "groupId": -1,
-                "groupUser": -1,
-                "gameName": "",
-            },
-        )
-        data = resp.json()
-        if data.get("resultCode") != 100:
-            return {"status": "error", "message": data.get("resultDesc", "Unknown error")}
+        """按名称搜索问卷列表（自动适配国内/国外平台参数格式）"""
+        payloads = [
+            {"pageNo": page, "surveyName": name, "status": "-1",
+             "deliveryRange": -1, "type": -1, "groupId": -1, "groupUser": -1, "gameName": ""},
+            {"pageNo": page, "surveyName": name, "status": "0", "gameName": ""},
+            {"pageNo": page, "surveyName": name},
+        ]
+        data = None
+        for payload in payloads:
+            try:
+                resp = self.session.post(f"{self.base_url}{API_SURVEY_LIST}", json=payload)
+                d = resp.json()
+                if d.get("resultCode") == 100:
+                    data = d
+                    break
+            except Exception:
+                continue
+        if data is None:
+            return {"status": "error", "message": "搜索请求失败"}
 
         surveys = data.get("dataList", [])
         _STATUS_MAP = {0: "未发布", 1: "回收中", 2: "已停止", 3: "已关闭"}
@@ -270,7 +307,7 @@ class SurveyChecker:
     def get_question_list(self, survey_id):
         """获取问卷的题目列表（统计分析接口，含题型信息）"""
         resp = self.session.post(
-            f"{BASE_URL}{API_QUESTION_LIST}",
+            f"{self.base_url}{API_QUESTION_LIST}",
             json={"surveyId": survey_id, "type": "", "keyWord": "", "questionExportList": []},
         )
         data = resp.json()
@@ -287,7 +324,7 @@ class SurveyChecker:
     def get_survey_full(self, survey_id):
         """获取问卷的完整数据（用于修改后 save 回去）"""
         resp = self.session.get(
-            f"{BASE_URL}{API_SURVEY_DETAIL}",
+            f"{self.base_url}{API_SURVEY_DETAIL}",
             params={"id": survey_id},
         )
         data = resp.json()
@@ -300,7 +337,7 @@ class SurveyChecker:
         """锁定问卷（编辑前需要）"""
         request_id = str(int(time.time() * 1000))
         resp = self.session.get(
-            f"{BASE_URL}{API_SURVEY_LOCK}",
+            f"{self.base_url}{API_SURVEY_LOCK}",
             params={"surveyId": survey_id, "requestId": request_id},
         )
         data = resp.json()
@@ -309,7 +346,7 @@ class SurveyChecker:
     def save_survey(self, survey_data):
         """保存整个问卷数据"""
         resp = self.session.post(
-            f"{BASE_URL}{API_SURVEY_SAVE}",
+            f"{self.base_url}{API_SURVEY_SAVE}",
             json=survey_data,
         )
         data = resp.json()
@@ -374,11 +411,21 @@ class SurveyChecker:
             "surveyExtraJsonStruct": survey_extra,
         }
 
-        resp = self.session.post(
-            f"{BASE_URL}{API_SURVEY_COPY}",
-            json=payload,
-        )
+        resp = self.session.post(f"{self.base_url}{API_SURVEY_COPY}", json=payload)
         data = resp.json()
+
+        # 国外系统对部分字段敏感，若失败则用精简 payload 重试
+        if data.get("resultCode") != 100 and self.platform == "global":
+            _log(f"Copy failed ({data.get('resultDesc')}), retrying with minimal payload...")
+            minimal_payload = {
+                "id": source_id, "surveyName": new_name,
+                "type": survey_type, "deliveryRange": delivery_range,
+                "lang": lang, "defaultLang": default_lang,
+                "groupId": group_id, "groupList": group_list,
+                "remark": remark, "gameName": game_name, "directArea": direct_area,
+            }
+            resp = self.session.post(f"{self.base_url}{API_SURVEY_COPY}", json=minimal_payload)
+            data = resp.json()
 
         if data.get("resultCode") != 100:
             return {
@@ -406,7 +453,7 @@ class SurveyChecker:
             "source_name": source_name,
             "new_id": new_id,
             "new_name": new_name,
-            "edit_url": f"{BASE_URL}/index.html#/edit/{new_id}" if new_id else None,
+            "edit_url": f"{self.base_url}/index.html#/edit/{new_id}" if new_id else None,
         }
 
     # ── 创建新问卷 ──────────────────────────────────────────────────────
@@ -450,8 +497,16 @@ class SurveyChecker:
         }
 
         _log(f"Creating new survey '{name}' for game '{game_name}'...")
-        resp = self.session.post(f"{BASE_URL}/view/survey/add", json=payload)
+        # 国外系统对 surveyExtraJsonStruct 敏感，失败时用精简 payload 重试
+        resp = self.session.post(f"{self.base_url}/view/survey/add", json=payload)
         data = resp.json()
+
+        # 国外系统对 surveyExtraJsonStruct 字段敏感，失败时用精简 payload 重试
+        if data.get("resultCode") != 100 and self.platform == "global":
+            _log(f"Create failed ({data.get('resultDesc')}), retrying without extra fields...")
+            minimal_payload = {k: v for k, v in payload.items() if k != "surveyExtraJsonStruct"}
+            resp = self.session.post(f"{self.base_url}/view/survey/add", json=minimal_payload)
+            data = resp.json()
 
         if data.get("resultCode") != 100:
             return {
@@ -469,7 +524,7 @@ class SurveyChecker:
             "new_id": new_id,
             "new_name": name,
             "game_name": game_name,
-            "edit_url": f"{BASE_URL}/index.html#/edit/{new_id}" if new_id else None,
+            "edit_url": f"{self.base_url}/index.html#/edit/{new_id}" if new_id else None,
             "survey_url": resp_data.get("surveyUrl"),
             "preview_url": resp_data.get("previewUrl"),
         }
@@ -1760,7 +1815,7 @@ class SurveyChecker:
     def get_question_detail(self, survey_id):
         """获取问卷的完整题目详情（含选项文本、跳转逻辑等）"""
         resp = self.session.get(
-            f"{BASE_URL}{API_QUESTION_DETAIL}",
+            f"{self.base_url}{API_QUESTION_DETAIL}",
             params={"surveyId": survey_id, "from": "dataclean"},
         )
         data = resp.json()
@@ -2091,10 +2146,21 @@ class SurveyChecker:
 
         # 5. 获取题目详情（编辑接口 — 含选项文本、逻辑）
         detail_questions = self.get_question_detail(target_id)
-        _log(f"Got detail data: {type(detail_questions)}")
+        _log(f"Got detail data: {type(detail_questions)}, len={len(detail_questions) if isinstance(detail_questions, list) else 'N/A'}")
 
         # 6. 合并数据，构建完整的题目列表
-        questions = self._merge_question_data(stat_questions, detail_questions)
+        # 若 stat API 和 detail API 都返回空（如国外系统），用 survey/detail 全量数据构建
+        if not stat_questions and not detail_questions:
+            _log("Both APIs empty, falling back to survey/detail full data mode")
+            full_data = self.get_survey_full(target_id)
+            detail_list = (full_data or {}).get("questions") or []
+            questions = self._build_questions_from_detail(detail_list)
+        elif not stat_questions and detail_questions:
+            _log("Stat API returned empty, falling back to detail-only mode")
+            detail_list = detail_questions if isinstance(detail_questions, list) else []
+            questions = self._build_questions_from_detail(detail_list)
+        else:
+            questions = self._merge_question_data(stat_questions, detail_questions)
 
         # 统计各类题目数量
         q_count = sum(1 for q in questions if q.get("prefix") == "Q")
@@ -2111,6 +2177,59 @@ class SurveyChecker:
             "description_count": t_count,    # 说明题数（T题）
             "fetch_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         }
+
+
+    def _build_questions_from_detail(self, detail_list):
+        """当 stat API 不可用时，直接从 detail 数据构建题目列表（国外系统 fallback）"""
+        STR_TYPE_MAP = {
+            "imply": ("隐含题", "Y"), "describe": ("说明题", "T"), "paging": ("分页符", "T"),
+            "radio": ("单选题", "Q"), "checkbox": ("多选题", "Q"), "blank": ("填空题", "Q"),
+            "multiple-text": ("多项填空题", "Q"), "star": ("星级评分题", "Q"),
+            "rect-star": ("矩阵星级题", "Q"), "rect-radio": ("矩阵单选题", "Q"),
+            "rect-checkbox": ("矩阵多选题", "Q"), "nps": ("NPS题", "Q"),
+            "rect-nps": ("矩阵NPS题", "Q"), "scale": ("量表题", "Q"),
+            "sort": ("排序题", "Q"), "dropdown": ("下拉选择题", "Q"),
+            "language": ("语言选择题", "Q"), "date": ("日期选择题", "Q"),
+            "option-merge": ("选项合并", "T"), "question-merge": ("多题合并", "T"),
+        }
+        prefix_counters = {"Q": 0, "Y": 0, "T": 0}
+        questions = []
+        for detail in detail_list:
+            q_type = detail.get("type", "")
+            type_name, prefix = STR_TYPE_MAP.get(q_type, (f"未知({q_type})", "Q"))
+            prefix_counters[prefix] = prefix_counters.get(prefix, 0) + 1
+            label = f"{prefix}{prefix_counters[prefix]}"
+            question = {
+                "label": label, "prefix": prefix, "index": prefix_counters[prefix],
+                "id": detail.get("id"),
+                "title": _strip_html(detail.get("title", "")),
+                "type_code": q_type, "type": type_name,
+                "required": detail.get("required", 0),
+                "options": [], "logic": None, "sub_questions": [],
+                "layout": detail.get("layout", 0),
+                "maxRow": detail.get("maxRow", 1),
+            }
+            for opt in (detail.get("options") or []):
+                opt_text = _strip_html(opt.get("text", ""))
+                if opt_text:
+                    question["options"].append({
+                        "id": opt.get("id"), "text": opt_text,
+                        "mutex": opt.get("mutex", 0), "hasOther": opt.get("hasOther", 0),
+                        "hidden": opt.get("hidden", 0), "noRandom": opt.get("noRandom", 0),
+                    })
+            logic = detail.get("logic") or detail.get("jumpLogic") or detail.get("displayLogic")
+            if logic:
+                question["logic"] = logic
+            for sub in (detail.get("subQuestions") or []):
+                sub_title = _strip_html(sub.get("title", ""))
+                if sub_title:
+                    question["sub_questions"].append({"id": sub.get("id"), "title": sub_title})
+            if detail.get("description"):
+                question["description"] = _strip_html(detail["description"])
+            if detail.get("random"):
+                question["random"] = detail["random"]
+            questions.append(question)
+        return questions
 
     def _merge_question_data(self, stat_questions, detail_data):
         """合并统计接口和详情接口的数据"""
@@ -2249,8 +2368,12 @@ class SurveyChecker:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="网易问卷质量检查工具 — 获取问卷内容",
+        description="网易问卷质量检查工具 — 获取问卷内容（支持国内/国外双平台）",
         formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--platform", "-p", choices=["cn", "global"], default="cn",
+        help="问卷平台：cn=国内(survey-game.163.com)，global=国外(survey-game.easebar.com)。默认 cn",
     )
     subparsers = parser.add_subparsers(dest="command", help="可用命令")
 
@@ -2334,7 +2457,7 @@ def main():
         parser.print_help()
         return
 
-    checker = SurveyChecker()
+    checker = SurveyChecker(platform=args.platform)
 
     if args.command == "check":
         if checker.check_auth():

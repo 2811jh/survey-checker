@@ -1,7 +1,8 @@
 ---
 name: survey-checker
 description: >
-  网易问卷（survey-game.163.com）全流程管理工具：质量检查、自动修复、问卷复制。
+  网易问卷（国内 survey-game.163.com / 国外 survey-game.easebar.com）全流程管理工具：
+  质量检查、自动修复、问卷复制、题目录入。
   当用户说"检查问卷"、"审查问卷"、"问卷有没有问题"、"帮我看看问卷"、"review 问卷"、
   "问卷质检"、"问卷校验"、"问卷有错别字吗"、"问卷逻辑对不对"等类似表达时触发此 skill。
   当用户说"复制问卷"、"复制国内问卷"、"把问卷xxx复制一份"、"基于xxx问卷创建新版本"等
@@ -41,6 +42,39 @@ description: >
 ---
 
 ## 工作流程
+
+### Step 0: 确认问卷平台
+
+**⚠️ 重要：执行任何操作前，必须先确认平台！** 工具同时支持国内和国外两个平台，认证和 Cookie 完全独立：
+
+| 平台 | 系统地址 | CLI 参数 |
+|------|---------|---------|
+| **国内** | `survey-game.163.com` | `--platform cn`（默认，可省略） |
+| **国外** | `survey-game.easebar.com` | `--platform global` 或 `-p global` |
+
+**如果用户没有明确说明是国内还是国外问卷，必须先询问用户：**
+
+```
+请问这是哪个平台的问卷？
+- 国内问卷（survey-game.163.com）
+- 国外问卷（survey-game.easebar.com）
+```
+
+确认平台后，所有命令都带上对应的 `--platform` 参数：
+
+```bash
+# 国内（默认，--platform cn 可省略）
+python {SKILL_DIR}/survey_checker.py check
+
+# 国外（必须加 -p global）
+python {SKILL_DIR}/survey_checker.py -p global check
+python {SKILL_DIR}/survey_checker.py -p global fetch --id 44583
+python {SKILL_DIR}/survey_checker.py -p global calibrate --id 44583
+```
+
+国内国外各有独立的 Cookie 文件：国内 → `config.json`，国外 → `config_global.json`。
+
+---
 
 ### Step 1: 收集信息 & 认证
 
