@@ -69,6 +69,7 @@ API_SURVEY_DETAIL = "/view/survey/detail"
 API_SURVEY_SAVE = "/view/survey/save"
 API_SURVEY_LOCK = "/view/survey/set_lock"
 API_SURVEY_COPY = "/view/template/survey/quote"
+API_SURVEY_SETTING = "/view/survey/setting"   # 发布设置（含语言）
 
 # 需要提取的 Cookie 名称（向后兼容）
 TARGET_COOKIES = {"SURVEY_TOKEN", "oversea-online_SURVEY_TOKEN", "JSESSIONID", "P_INFO"}
@@ -446,6 +447,24 @@ class SurveyChecker:
                 new_id = resp_result
 
         _log(f"Copy successful! New survey ID: {new_id}")
+
+        # 4. 修正发布设置中的语言字段（国外平台 save_survey 不会更新 lang，需单独调用 setting 接口）
+        if new_id:
+            setting_payload = {
+                "id": new_id,
+                "lang": lang,
+                "defaultLang": default_lang or "cn",
+            }
+            try:
+                sr = self.session.post(f"{self.base_url}{API_SURVEY_SETTING}", json=setting_payload)
+                sd = sr.json() if sr.text.strip() else {}
+                if sd.get("resultCode") == 100:
+                    _log(f"Survey setting updated: lang={lang}")
+                else:
+                    _log(f"Survey setting update failed: {sd.get('resultDesc','')}")
+            except Exception as e:
+                _log(f"Survey setting update error: {e}")
+
         return {
             "status": "success",
             "message": f"复制成功",
@@ -518,6 +537,24 @@ class SurveyChecker:
         new_id = resp_data.get("id")
 
         _log(f"Create successful! New survey ID: {new_id}")
+
+        # 修正发布设置中的语言字段（国外平台 /survey/add 创建后 lang 可能不正确，需单独调用 setting 接口）
+        if new_id:
+            setting_payload = {
+                "id": new_id,
+                "lang": lang,
+                "defaultLang": default_lang,
+            }
+            try:
+                sr = self.session.post(f"{self.base_url}{API_SURVEY_SETTING}", json=setting_payload)
+                sd = sr.json() if sr.text.strip() else {}
+                if sd.get("resultCode") == 100:
+                    _log(f"Survey setting updated: lang={lang}")
+                else:
+                    _log(f"Survey setting update failed: {sd.get('resultDesc','')}")
+            except Exception as e:
+                _log(f"Survey setting update error: {e}")
+
         return {
             "status": "success",
             "message": "创建成功",
@@ -837,7 +874,7 @@ class SurveyChecker:
 
         # 隐含题专属字段
         if qtype == "imply":
-            q["hidden"] = 0          # 隐含题在 API 中 hidden=0
+            q["hidden"] = 1          # 隐含题在 API 中 hidden=1（重要！=0 时前端会渲染为不可编辑的普通隐藏题）
             q["required"] = 1         # 隐含题 required=1
             q["level"] = 1            # 隐含题 level=1
             q["layout"] = 0
