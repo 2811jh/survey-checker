@@ -1891,7 +1891,7 @@ class SurveyChecker:
         if not data:
             return {"status": "error", "message": "获取问卷数据失败"}
 
-        qs = data.get("questions", [])
+        qs = data.get("questions") or []
         label_map = self._build_label_map(qs)
         issues = []       # 发现的问题列表
         modifications = []  # 自动修复 JSON
