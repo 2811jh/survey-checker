@@ -448,7 +448,16 @@ class SurveyChecker:
 
         _log(f"Copy successful! New survey ID: {new_id}")
 
-        # 4. 修正发布设置中的语言字段（国外平台 save_survey 不会更新 lang，需单独调用 setting 接口）
+        # 4a. 从 survey/detail 获取新问卷的 surveyUrl / previewUrl（复制接口不直接返回）
+        new_survey_url = None
+        new_preview_url = None
+        if new_id:
+            new_full = self.get_survey_full(new_id)
+            if new_full:
+                new_survey_url = new_full.get("surveyUrl")
+                new_preview_url = new_full.get("previewUrl")
+
+        # 4b. 修正发布设置中的语言字段（国外平台 save_survey 不会更新 lang，需单独调用 setting 接口）
         if new_id:
             setting_payload = {
                 "id": new_id,
@@ -473,6 +482,8 @@ class SurveyChecker:
             "new_id": new_id,
             "new_name": new_name,
             "edit_url": f"{self.base_url}/index.html#/edit/{new_id}" if new_id else None,
+            "survey_url": new_survey_url,
+            "preview_url": new_preview_url,
         }
 
     # ── 创建新问卷 ──────────────────────────────────────────────────────
@@ -2192,6 +2203,9 @@ class SurveyChecker:
             full_data = self.get_survey_full(target_id)
             detail_list = (full_data or {}).get("questions") or []
             questions = self._build_questions_from_detail(detail_list)
+            # B2 fix: 从 full_data 补充 surveyName（按 ID 查询时 target_name 为空）
+            if full_data and not survey_info.get("name"):
+                survey_info["name"] = full_data.get("surveyName", "")
         elif not stat_questions and detail_questions:
             _log("Stat API returned empty, falling back to detail-only mode")
             detail_list = detail_questions if isinstance(detail_questions, list) else []
