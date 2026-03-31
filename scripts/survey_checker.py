@@ -1074,7 +1074,7 @@ class SurveyChecker:
         if not survey_data:
             return {"status": "error", "message": "获取问卷数据失败"}
 
-        questions = survey_data.get("questions", [])
+        questions = survey_data.get("questions") or []
         orig_count = len(questions)
 
         # 2. 过滤题目
@@ -1130,7 +1130,7 @@ class SurveyChecker:
         if not survey_data:
             return {"status": "error", "message": "获取问卷数据失败"}
 
-        questions = survey_data.get("questions", [])
+        questions = survey_data.get("questions") or []
         label_map = self._build_label_map(questions)
         added = []
 
