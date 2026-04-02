@@ -385,47 +385,38 @@ class SurveyChecker:
         group_list = []
         remark = source_data.get("remark", "")
         direct_area = source_data.get("directArea", 0)
-        custom_url_type = source_data.get("customUrlType", 0)
-        custom_url = source_data.get("customUrl", "")
-        survey_extra = source_data.get("surveyExtraJsonStruct", {"surveyCheckUser": {"uid": ""}})
 
         if new_name is None:
             new_name = f"{source_name}-副本"
 
         _log(f"Copying '{source_name}' → '{new_name}'...")
 
-        # 2. 调用复制接口
+        # 2. 调用复制接口（payload 严格对齐 Web UI 手动复制时的 quote 请求）
         payload = {
             "id": source_id,
             "surveyName": new_name,
             "type": survey_type,
             "deliveryRange": delivery_range,
-            "customUrlType": custom_url_type,
-            "customUrl": custom_url,
+            "customUrlType": 0,       # 必须=0（系统生成URL），否则不会生成静态预览文件
+            "customUrl": "",           # 空字符串，与 Web UI 一致
+            "defaultLang": None,       # Web UI 传 null，不是 "cn"
             "lang": lang,
-            "defaultLang": default_lang,
             "groupId": group_id,
             "groupList": group_list,
             "remark": remark,
             "gameName": game_name,
             "directArea": direct_area,
-            "surveyExtraJsonStruct": survey_extra,
+            "surveyExtraJsonStruct": {"surveyCheckUser": {"uid": ""}},
         }
 
         resp = self.session.post(f"{self.base_url}{API_SURVEY_COPY}", json=payload)
         data = resp.json()
 
-        # 国外系统对部分字段敏感，若失败则用精简 payload 重试
+        # 国外系统对 surveyExtraJsonStruct 敏感，若失败则去掉该字段重试
         if data.get("resultCode") != 100 and self.platform == "global":
-            _log(f"Copy failed ({data.get('resultDesc')}), retrying with minimal payload...")
-            minimal_payload = {
-                "id": source_id, "surveyName": new_name,
-                "type": survey_type, "deliveryRange": delivery_range,
-                "lang": lang, "defaultLang": default_lang,
-                "groupId": group_id, "groupList": group_list,
-                "remark": remark, "gameName": game_name, "directArea": direct_area,
-            }
-            resp = self.session.post(f"{self.base_url}{API_SURVEY_COPY}", json=minimal_payload)
+            _log(f"Copy failed ({data.get('resultDesc')}), retrying without surveyExtraJsonStruct...")
+            payload.pop("surveyExtraJsonStruct", None)
+            resp = self.session.post(f"{self.base_url}{API_SURVEY_COPY}", json=payload)
             data = resp.json()
 
         if data.get("resultCode") != 100:
@@ -457,22 +448,30 @@ class SurveyChecker:
                 new_survey_url = new_full.get("surveyUrl")
                 new_preview_url = new_full.get("previewUrl")
 
-        # 4b. 修正发布设置中的语言字段（国外平台 save_survey 不会更新 lang，需单独调用 setting 接口）
-        if new_id:
-            setting_payload = {
-                "id": new_id,
-                "lang": lang,
-                "defaultLang": default_lang or "cn",
-            }
-            try:
-                sr = self.session.post(f"{self.base_url}{API_SURVEY_SETTING}", json=setting_payload)
-                sd = sr.json() if sr.text.strip() else {}
-                if sd.get("resultCode") == 100:
-                    _log(f"Survey setting updated: lang={lang}")
-                else:
-                    _log(f"Survey setting update failed: {sd.get('resultDesc','')}")
-            except Exception as e:
-                _log(f"Survey setting update error: {e}")
+                # 国外平台：复制后调用 preview 接口，触发服务端生成静态 preview/paper HTML 文件
+                # （与 Web UI 手动复制后自动进入编辑器时调用 preview?id=xxx 的行为一致）
+                if self.platform == "global":
+                    _log("Triggering static file generation via preview API...")
+                    try:
+                        pr = self.session.get(
+                            f"{self.base_url}/view/survey/preview",
+                            params={"id": new_id},
+                        )
+                        pd = pr.json() if pr.text.strip() else {}
+                        if pd.get("resultCode") == 100:
+                            gen_url = pd.get("data", "")
+                            _log(f"Preview triggered: {gen_url}")
+                            # 注意：preview 接口返回的 URL 用 ID 路径（/htmls/44696/），
+                            # 实际可用的是 detail 接口中的短码路径（/htmls/5utqar/），
+                            # 所以这里不覆盖 new_preview_url
+                        else:
+                            _log(f"Preview trigger response: {pd.get('resultDesc','')}")
+                    except Exception as e:
+                        _log(f"Preview trigger error (non-fatal): {e}")
+
+        # 4b. 语言字段已通过复制 payload 的 lang 字段传递，无需单独调用 setting 接口
+        # 注意：国外平台的 setting 接口会覆盖整个问卷数据（包括题目），导致题目丢失！
+        # 绝对不要在复制后调用 setting 接口。
 
         return {
             "status": "success",
