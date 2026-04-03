@@ -19,8 +19,14 @@ def _make_headers(base_url):
     }
 
 
-def make_session(platform, cookies):
-    """创建配置好的 requests.Session，挂载 Cookie 和 headers"""
+def make_session(platform, cookies=None):
+    """
+    创建配置好的 requests.Session，挂载 Cookie 和 headers。
+    若 cookies 未传入，自动从 config.json 加载。
+    """
+    if cookies is None:
+        from .auth import load_cookies
+        cookies = load_cookies(platform)
     plat = PLATFORMS[platform]
     base_url = plat["base_url"]
     cookie_domain = plat["cookie_domain"]
