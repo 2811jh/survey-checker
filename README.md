@@ -1,8 +1,8 @@
 # 📋 Survey Checker
 
-> 网易问卷（survey-game.163.com）全流程自动化管理 AI Skill
+> 网易问卷（国内 survey-game.163.com / 国外 survey-game.easebar.com）全流程自动化管理 AI Skill
 
-一个 [Agent Skills](https://github.com/anthropics/courses/tree/master/tool_use) 格式的 AI 编程助手技能，覆盖问卷从**复制 → 录入 → 校准 → 检查 → 修复 → 报告**的完整生命周期。
+一个 [Agent Skills](https://github.com/anthropics/courses/tree/master/tool_use) 格式的 AI 编程助手技能，覆盖问卷从**复制 → 录入 → 校准 → 检查 → 修复 → 报告**的完整生命周期。支持**国内 / 海外双平台**，统一接口，一键切换。
 
 ---
 
@@ -125,16 +125,28 @@ playwright install chromium
 
 ## 🔧 CLI 命令一览
 
+所有命令均支持 `--platform` / `-p` 参数切换平台（默认 `cn`）：
+
+```bash
+# 国内平台（默认）
+python survey_checker.py fetch --id 91112
+
+# 海外平台
+python survey_checker.py -p global fetch --id 44583
+```
+
 | 命令 | 功能 | 示例 |
 |------|------|------|
 | `check` | 检查认证状态 | `survey_checker.py check` |
 | `search` | 搜索问卷 | `survey_checker.py search --name "回流玩家"` |
 | `fetch` | 抓取问卷完整内容 | `survey_checker.py fetch --id 91112` |
 | `copy` | 复制问卷 | `survey_checker.py copy --id 91044 --name "新版本"` |
+| `create` | 创建空白问卷 | `survey_checker.py create --name "新问卷" --game "游戏名"` |
 | `clear` | 清空问卷题目 | `survey_checker.py clear --id 91112 [--keep-imply]` |
 | `import` | 从 txt/md 文件录入 | `survey_checker.py import --file "题目.md" --id 91112` |
 | `add` | 从 JSON 新增题目 | `survey_checker.py add --id 91112 --json @questions.json` |
 | `calibrate` | R1-R8 自动校准修复 | `survey_checker.py calibrate --id 91112 [--dry-run]` |
+| `autofix` | calibrate 的别名 | `survey_checker.py autofix --id 91112` |
 | `modify` | 修改问卷设置 | `survey_checker.py modify --id 91112 --json '[...]'` |
 | `logic` | 设置逻辑规则 | `survey_checker.py logic --id 91112 --json '[...]'` |
 
@@ -196,22 +208,66 @@ playwright install chromium
 
 ```
 survey-checker/
-├── SKILL.md                  # AI 助手指令（工作流程 + R1-R8 规则引擎）
+├── SKILL.md                       # AI 助手指令（工作流程 + R1-R8 规则引擎）
 ├── scripts/
-│   ├── survey_checker.py     # 核心脚本（10 个 CLI 命令 + 完整 API 封装）
-│   ├── generate_report.py    # Excel 报告生成器
-│   └── requirements.txt      # Python 依赖
+│   ├── survey_checker.py          # 薄入口（CLI + SurveyChecker 包装类）
+│   ├── generate_report.py         # Excel 报告生成器
+│   ├── requirements.txt           # Python 依赖
+│   │
+│   ├── core/                      # 基础层
+│   │   ├── constants.py           #   平台配置、API 端点常量
+│   │   ├── utils.py               #   日志、HTML 清理、ID 生成等通用工具
+│   │   ├── auth.py                #   Cookie 加载/保存/检查/Playwright 自动刷新
+│   │   └── client.py              #   HTTP Session 工厂（自动加载 Cookie）
+│   │
+│   ├── survey_io/                 # IO 层
+│   │   ├── fetcher.py             #   问卷搜索、数据抓取、结构化输出
+│   │   └── importer.py            #   txt/md 标准格式文件 → 题目 spec 解析
+│   │
+│   └── operations/                # 业务操作层
+│       ├── builder.py             #   题目对象构建（全题型支持）
+│       ├── survey_ops.py          #   问卷 CRUD（复制/创建/锁定/保存）
+│       ├── question_ops.py        #   题目增删改（清空/新增/批量修改）
+│       ├── logic_ops.py           #   显示逻辑规则设置
+│       └── calibrate.py           #   R1-R8 规则扫描 + 自动修复引擎
+│
 ├── README.md
 ├── LICENSE
 └── .gitignore
 ```
 
+### 架构设计
+
+采用**职责分层**架构，三层之间单向依赖：
+
+```
+Operations（业务操作）  ──依赖──→  IO（数据读写）  ──依赖──→  Core（基础设施）
+```
+
+- **Core 层**：不依赖任何上层模块，提供认证、HTTP、工具函数
+- **IO 层**：只依赖 Core 层，负责问卷数据的读取和文件解析
+- **Operations 层**：依赖 Core + IO 层，实现所有业务逻辑
+
+入口文件 `survey_checker.py` 是一个**薄包装**（~240 行），通过 `SurveyChecker` 类将所有子模块的函数式 API 封装为面向对象接口，保持向后兼容。
+
+---
+
+## 🌐 双平台支持
+
+| 平台 | 地址 | CLI 参数 | Cookie 配置 |
+|------|------|----------|-------------|
+| 🇨🇳 国内 | survey-game.163.com | `-p cn`（默认） | `config.json` |
+| 🌍 海外 | survey-game.easebar.com | `-p global` | `config_global.json` |
+
+两个平台使用**独立的 Cookie 和浏览器 Profile**，互不干扰。代码逻辑完全共用，仅通过 `constants.py` 中的 `PLATFORMS` 配置区分。
+
 ---
 
 ## 🔐 安全说明
 
-- `config.json`（Cookie）和 `.browser_profile/`（浏览器 session）**不会上传到 GitHub**
+- `config.json` / `config_global.json`（Cookie）和 `.browser_profile*`（浏览器 session）**不会上传到 GitHub**
 - 首次使用时会打开浏览器窗口，登录后自动保存到本地
+- 国内和海外平台使用**独立的 Cookie 文件和浏览器 Profile**，互不影响
 - 后续使用自动复用已保存的 session，Cookie 过期时自动续期
 - **所有写入操作前必须经用户确认**，保存后自动验证是否真正生效
 
