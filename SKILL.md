@@ -27,10 +27,12 @@ description: >
 
 检查完成后生成 Excel 报告，并可通过 `calibrate`（问卷校准）命令按 R1-R8 规则自动修复。
 
-### 能力二：问卷复制
+### 能力二：问卷创建、复制与题目录入
 
-将已有问卷复制一份新问卷（保留所有题目、选项、逻辑设置），支持自定义新名称。
-典型场景：基于国内版问卷创建海外版、基于上期问卷创建本期版本等。
+- **新建问卷** — 创建空白问卷并录入题目（`create` + `import`）
+- **复制问卷** — 基于已有问卷克隆（保留所有题目、选项、逻辑设置），支持自定义新名称
+- **题目录入** — 任意格式文件（md/txt/xlsx）统一转化为标准格式后高精度录入，支持跳转逻辑自动写入
+- 典型场景：基于国内版问卷创建海外版、基于上期问卷创建本期版本、从零新建问卷等
 
 ## 环境
 
@@ -81,8 +83,8 @@ python {SKILL_DIR}/survey_checker.py -p global calibrate --id 44583
 向用户确认问卷名称或关键词（用于搜索定位目标问卷）。
 
 **认证完全自动化，无需向用户要 Cookie 或密码。** 脚本内置与 `survey_download` 相同的 Cookie 自动管理机制：
-- Cookie 保存在 `{SKILL_DIR}/config.json`
-- 失效时自动调用 `refresh_cookie.py` 刷新
+- Cookie 保存在 `{SKILL_DIR}/config.json`（国内）/ `config_global.json`（海外）
+- 失效时自动通过 Playwright 刷新
 - 首次运行会打开浏览器窗口，用户在浏览器中登录后自动保存 session 到 `.browser_profile`
 - 后续运行自动复用 session，全自动无需人工操作
 
@@ -519,17 +521,17 @@ python {SKILL_DIR}/survey_checker.py logic --id 问卷ID --json '[{"sourceLabel"
 - `playwright`（浏览器自动化）
 - `openpyxl`（生成 Excel 报告）
 
-首次使用时需要安装 Playwright 浏览器：
+首次使用时需要安装 Playwright 浏览器（脚本使用 Edge，需安装 chromium 内核）：
 ```bash
 pip install playwright openpyxl
-playwright install chromium
+playwright install msedge
 ```
 
 ---
 
 ## 注意事项
 
-- Cookie 可能会过期，如果抓取失败，提示用户重新提供 Cookie
+- Cookie 可能会过期，脚本会自动通过 Playwright 打开浏览器刷新（需关闭其他 Edge 窗口）
 - 问卷平台的页面结构可能更新，抓取脚本需要相应调整
 - 对于非常长的问卷（100+ 题），抓取和分析可能需要较长时间，要给用户预期
 - 登录凭证属于敏感信息，不要在日志或报告中记录
