@@ -38,6 +38,14 @@ def parse_question_file(filepath):
         "隐含问题": "imply",
     }
 
+    # 跳过文件头部 [问卷标题] / [问卷说明] 行
+    while i < len(lines):
+        line = lines[i].strip()
+        if line.startswith("[问卷标题]") or line.startswith("[问卷说明]"):
+            i += 1
+            continue
+        break
+
     while i < len(lines):
         line = lines[i].strip()
         m = re.match(r"^(\d+)\[(.+?)\](.+)$", line)
@@ -50,6 +58,8 @@ def parse_question_file(filepath):
                 "title": m.group(3).strip(),
                 "_num": int(m.group(1)),
                 "_lines": [],
+                "_logic_lines": [],   # 新增：跳转逻辑行
+                "_in_logic": False,
             }
             i += 1
             while i < len(lines):
@@ -59,6 +69,20 @@ def parse_question_file(filepath):
                     continue
                 if re.match(r"^\d+\[", next_line):
                     break
+                # 检测 [跳转逻辑] 块的开始/结束
+                if next_line == "[跳转逻辑]":
+                    current["_in_logic"] = True
+                    i += 1
+                    continue
+                # 在逻辑块内，以 "当 " 开头的行是逻辑规则
+                if current["_in_logic"]:
+                    if next_line.startswith("当 "):
+                        current["_logic_lines"].append(next_line)
+                        i += 1
+                        continue
+                    else:
+                        # 逻辑块结束（遇到非规则行）
+                        current["_in_logic"] = False
                 current["_lines"].append(next_line)
                 i += 1
             continue
@@ -205,9 +229,67 @@ def parse_question_file(filepath):
                 if el.strip():
                     spec["title"] += "<br>" + el.strip()
 
+        # ── 解析 [跳转逻辑] 块 → logic_rules ──────────────────────────────
+        if q.get("_logic_lines"):
+            logic_rules = _parse_logic_lines(q["_logic_lines"])
+            if logic_rules:
+                spec["logic_rules"] = logic_rules
+
         result.append(spec)
 
     return result
+
+
+# ─── 跳转逻辑文本解析 ─────────────────────────────────────────────────────────
+
+def _parse_logic_lines(logic_lines: list) -> list:
+    """
+    将标准格式的 [跳转逻辑] 文本行转化为 logic_rules spec 列表。
+
+    输入示例：
+      ["当 评分 1-2 分 → 显示 Q11（不满意原因）",
+       "当 选择"是的，卸载了" → 显示 Q12"]
+
+    输出示例：
+      [{"when_options": ["评分 1-2 分"], "show_questions": ["Q11"], "action": "show"},
+       {"when_options": ["是的，卸载了"],  "show_questions": ["Q12"], "action": "show"}]
+    """
+    rules = []
+    for line in logic_lines:
+        # 格式：当 <条件> → <动作> <目标>
+        # 动作关键词：显示、跳转到、结束问卷
+        m = re.match(r"^当\s+(.+?)\s+(?:→|->)\s+(.+)$", line)
+        if not m:
+            continue
+        condition = m.group(1).strip()
+        action_part = m.group(2).strip()
+
+        # 解析条件（选项文字），去掉引号
+        condition_clean = re.sub(r"[\"\"\"'']", "", condition)
+        # 去掉括号注释（如"评分 1-2 分" 保留，"Q11（不满意原因）"去掉括号）
+        condition_clean = re.sub(r"（[^）]*）", "", condition_clean).strip()
+        # 去掉"选择"前缀
+        condition_clean = re.sub(r"^选择\s*", "", condition_clean).strip()
+
+        rule = {"when_options": [condition_clean]}
+
+        if "结束问卷" in action_part:
+            rule["action"] = "end"
+            rule["show_questions"] = []
+        elif "跳转到" in action_part or "跳至" in action_part:
+            rule["action"] = "jump"
+            targets = re.findall(r"Q\d+", action_part)
+            rule["show_questions"] = targets
+        else:
+            # 默认：显示
+            rule["action"] = "show"
+            targets = re.findall(r"Q\d+", action_part)
+            rule["show_questions"] = targets
+
+        if rule.get("show_questions") is not None:
+            rules.append(rule)
+
+    return rules
 
 
 # ─── 导入入口 ─────────────────────────────────────────────────────────────────
