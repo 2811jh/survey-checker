@@ -8,6 +8,10 @@ __pycache__/
 
 # Config with cookies (sensitive)
 scripts/config.json
+scripts/config_global.json
+
+# Browser profiles (all platforms)
+scripts/.browser_profile_global/
 
 # OS files
 .DS_Store
