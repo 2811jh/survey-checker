@@ -30,10 +30,12 @@ scripts/
 │   ├── question_ops.py        # clear_questions、add_questions、modify_questions（L1070-L1843）
 │   ├── logic_ops.py           # set_logic_rules（L1211-L1393）
 │   └── calibrate.py           # calibrate、autofix、R1-R7规则（L1891-L2139）
-└── io/
+└── survey_io/
     ├── __init__.py
     ├── fetcher.py             # get_survey_full、search_surveys、get_question_list、get_question_detail、fetch_survey（L266-L340、L1862-L2418）
     └── importer.py            # parse_question_file、import_from_markdown（L582-L784）
+
+> ⚠️ 注意：文件夹名使用 `survey_io` 而非 `io`，因为 `io` 是 Python 内置模块名，会导致 ModuleNotFoundError。
 ```
 
 ---
