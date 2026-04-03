@@ -264,9 +264,9 @@ python {SKILL_DIR}/survey_checker.py modify --id 问卷ID --json @modifications.
 2. 说明修改内容和影响
 3. 用户确认后再执行
 
-### Step 3.6a: 新建问卷 / 录入到已有问卷
+### Step 3.6a: 新建问卷
 
-当用户要求**新建问卷并录入题目**（如"帮我新建问卷"、"从零做问卷"），或**录入题目到已有问卷**（如"帮我把这个文件上传到问卷 91780"），使用以下流程：
+当用户要求**新建一个空白问卷并录入题目**时（如"帮我新建问卷"、"创建一份新问卷"、"从零开始做问卷"），使用 `create` 命令：
 
 **第一步：向用户确认必要信息**
 
@@ -276,21 +276,39 @@ python {SKILL_DIR}/survey_checker.py modify --id 问卷ID --json @modifications.
 3. **语言**：简体中文（默认）/ 繁体中文 / English
 4. **投放范围**：公开（默认）/ 内部
 
-**第二步：确定目标问卷**
+**第二步：创建空白问卷**
 
-- **新建问卷**：用 `create` 命令创建空白问卷，拿到新 ID：
 ```bash
+# 创建国内问卷（简体中文，公开）
 python {SKILL_DIR}/survey_checker.py create --name "问卷名称" --game "游戏名称"
-python {SKILL_DIR}/survey_checker.py -p global create --name "问卷名称" --game "游戏名称"   # 海外
+
+# 创建国内问卷（英文，内部）
+python {SKILL_DIR}/survey_checker.py create --name "问卷名称" --game "游戏名称" --lang "English" --internal
+
+# 创建海外问卷
+python {SKILL_DIR}/survey_checker.py -p global create --name "问卷名称" --game "游戏名称"
 ```
 
-- **已有问卷**：用户直接给了问卷 ID → 跳过 create，直接进入下一步。如果用户要求清空原有题目后再录入，先执行 `clear --id 问卷ID`。
+返回结果包含：
+- `survey_id`: 新问卷 ID
+- `edit_url`: 编辑页面链接
 
 **第三步：进入 Step 3.7 录入题目流程**
 
-直接进入 Step 3.7 录入题目。
+新建的问卷是空白的，无需清空，直接进入 Step 3.7 录入题目。
 
 **⚠️ 校准时机：** 录入完成后执行一次 `calibrate`，无需询问用户。
+
+---
+
+### Step 3.6b: 仅录入（到已有问卷）
+
+当用户要求**将题目录入到一个已有的问卷**时（如"帮我把这个文件上传到问卷 91780"、"往问卷 XXX 里录入题目"），无需新建问卷：
+
+1. **确认目标问卷 ID**（用户已给则直接用，未给则通过 `search` 搜索确认）
+2. **询问如何处理问卷现有题目**：清空后录入 / 保留并追加 / 保留隐含题清空其他
+3. **进入 Step 3.7 录入题目流程**
+4. **录入完成后执行 `calibrate`**，无需询问用户
 
 ---
 
