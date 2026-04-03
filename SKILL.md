@@ -264,6 +264,43 @@ python {SKILL_DIR}/survey_checker.py modify --id 问卷ID --json @modifications.
 2. 说明修改内容和影响
 3. 用户确认后再执行
 
+### Step 3.6a: 新建问卷
+
+当用户要求**新建一个空白问卷并录入题目**时（如"帮我新建问卷"、"创建一份新问卷"、"从零开始做问卷"），使用 `create` 命令：
+
+**第一步：向用户确认必要信息**
+
+用 `ask_user_question` 依次确认：
+1. **问卷名称**（如"《我的世界》4月版本调研"）
+2. **游戏名称**（如"我的世界"）
+3. **语言**：简体中文（默认）/ 繁体中文 / English
+4. **投放范围**：公开（默认）/ 内部
+
+**第二步：创建空白问卷**
+
+```bash
+# 创建国内问卷（简体中文，公开）
+python {SKILL_DIR}/survey_checker.py create --name "问卷名称" --game "游戏名称"
+
+# 创建国内问卷（英文，内部）
+python {SKILL_DIR}/survey_checker.py create --name "问卷名称" --game "游戏名称" --lang "English" --internal
+
+# 创建海外问卷
+python {SKILL_DIR}/survey_checker.py -p global create --name "问卷名称" --game "游戏名称"
+```
+
+返回结果包含：
+- `survey_id`: 新问卷 ID
+- `edit_url`: 编辑页面链接
+
+**第三步：进入 Step 3.7 录入题目流程**
+
+新建的问卷是空白的，无需清空，直接进入 Step 3.7 录入题目。
+
+**⚠️ 校准时机：** 录入完成后执行一次 `calibrate`，无需询问用户。
+
+---
+
 ### Step 3.6: 复制问卷
 
 当用户要求复制/克隆问卷时（如"复制国内问卷91044"、"基于上期问卷创建新版"、"把问卷复制一份"），使用 `copy` 命令：
