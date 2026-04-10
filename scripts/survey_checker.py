@@ -6,7 +6,7 @@
 所有核心实现均委托给 scripts/ 子模块：
   core/        认证、HTTP 客户端、通用工具、常量
   survey_io/   数据抓取（fetcher）、文本解析导入（importer）
-  operations/  survey_ops / question_ops / logic_ops / builder / calibrate
+  operations/  survey_ops / question_ops / logic_writer / builder / calibrate
 
 向后兼容：原有调用方式完全不变。
 """
@@ -26,7 +26,10 @@ from survey_io.fetcher import (
 from survey_io.importer import parse_question_file
 from operations.survey_ops import copy_survey, create_survey, lock_survey, save_survey
 from operations.question_ops import clear_questions, add_questions, modify_questions
-from operations.logic_ops import set_logic_rules
+from operations.logic_writer import (
+    extract_logic_block, parse_logic_block,
+    resolve_logic_rules, write_logic_rules,
+)
 from operations.calibrate import calibrate
 
 
@@ -105,8 +108,38 @@ class SurveyChecker:
 
     # ── 逻辑规则 ───────────────────────────────────────────────────────────────
 
-    def set_logic_rules(self, survey_id: int, logic_rules: list):
-        return set_logic_rules(self.session, self.base_url, survey_id, logic_rules)
+    def set_logic(self, survey_id: int, rules_text: list = None, filepath: str = None):
+        """设置逻辑规则（从文本行或文件）"""
+        if filepath:
+            logic_lines = extract_logic_block(filepath)
+        elif rules_text:
+            logic_lines = rules_text
+        else:
+            return {"status": "error", "message": "需要 --file 或 --rules 参数"}
+
+        if not logic_lines:
+            return {"status": "error", "message": "未找到有效的逻辑规则"}
+
+        parsed = parse_logic_block(logic_lines)
+        if not parsed:
+            return {"status": "error", "message": "逻辑规则解析失败，请检查格式"}
+
+        survey_data = get_survey_full(self.session, self.base_url, survey_id)
+        if not survey_data:
+            return {"status": "error", "message": "获取问卷数据失败"}
+
+        questions = survey_data.get("questions") or []
+        resolved, errors = resolve_logic_rules(parsed, questions)
+
+        result = {"parsed": len(parsed), "resolved": len(resolved), "errors": errors}
+        if resolved:
+            write_result = write_logic_rules(self.session, self.base_url, survey_id, resolved)
+            result.update(write_result)
+        else:
+            result["status"] = "error"
+            result["message"] = "无有效规则可写入"
+
+        return result
 
     # ── 校准（自动修复） ────────────────────────────────────────────────────────
 
@@ -199,7 +232,8 @@ def main():
     # logic
     lgp = subs.add_parser("logic", help="设置问卷题目间的逻辑规则")
     lgp.add_argument("--id", type=int, required=True)
-    lgp.add_argument("--json", required=True)
+    lgp.add_argument("--file", type=str, help="从 .standard.md 文件提取 [逻辑] 块")
+    lgp.add_argument("--rules", type=str, help="直接传入逻辑规则文本（多条用分号分隔）")
 
     # import
     imp = subs.add_parser("import", help="从文本文件解析题目并录入问卷")
@@ -266,10 +300,10 @@ def main():
         _json_output(checker.add_questions(args.id, specs))
 
     elif args.command == "logic":
-        rules = _load_json_arg(args.json)
-        if not isinstance(rules, list):
-            rules = [rules]
-        _json_output(checker.set_logic_rules(args.id, rules))
+        rules_text = None
+        if args.rules:
+            rules_text = [r.strip() for r in args.rules.split(";") if r.strip()]
+        _json_output(checker.set_logic(args.id, rules_text=rules_text, filepath=getattr(args, 'file', None)))
 
     elif args.command == "clear":
         _json_output(checker.clear_questions(args.id, keep_imply=args.keep_imply))
@@ -292,7 +326,11 @@ def main():
                 ],
             })
         else:
-            _json_output(checker.add_questions(args.id, specs))
+            from survey_io.importer import import_from_markdown
+            _json_output(import_from_markdown(
+                checker.session, checker.base_url, checker.platform,
+                args.id, args.file,
+            ))
 
 
 if __name__ == "__main__":
