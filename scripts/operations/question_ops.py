@@ -97,25 +97,25 @@ def add_questions(session, base_url, platform, survey_id, question_specs):
     time.sleep(3)
     verify_data = get_survey_full(session, base_url, survey_id)
 
-    # 配置随题逻辑规则
-    all_logic_rules = []
-    for spec in question_specs:
-        if "logic_rules" in spec:
-            all_logic_rules.extend(spec["logic_rules"])
-
-    logic_result = None
-    if all_logic_rules and verify_data:
-        from operations.logic_ops import set_logic_rules
-        _log(f"Configuring {len(all_logic_rules)} logic rules...")
-        logic_result = set_logic_rules(session, base_url, survey_id, all_logic_rules)
+    # ── 逻辑规则写入（暂时禁用，待 logic 工具完善后启用） ────────────
+    # all_logic_rules = []
+    # for spec in question_specs:
+    #     if "logic_rules" in spec:
+    #         all_logic_rules.extend(spec["logic_rules"])
+    #
+    # logic_result = None
+    # if all_logic_rules and verify_data:
+    #     from operations.logic_ops import set_logic_rules
+    #     _log(f"Configuring {len(all_logic_rules)} logic rules...")
+    #     logic_result = set_logic_rules(session, base_url, survey_id, all_logic_rules)
 
     result = {
         "status": "success",
         "message": f"成功新增 {len(added)} 道题目",
         "added": added,
     }
-    if logic_result:
-        result["logic_result"] = logic_result
+    # if logic_result:
+    #     result["logic_result"] = logic_result
     return result
 
 

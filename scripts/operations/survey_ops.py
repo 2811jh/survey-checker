@@ -192,6 +192,55 @@ def create_survey(session, base_url, platform, name, game_name,
         except Exception as e:
             _log(f"Survey setting update error: {e}")
 
+    # ── 补全默认字段（模拟编辑器首次保存行为）────────────────────────
+    if new_id:
+        _log("Initializing survey defaults (simulating editor first-save)...")
+        full_data = get_survey_full(session, base_url, new_id)
+        if full_data:
+            defaults = {
+                "prefix": "为了给您提供更好的服务，希望您能抽出几分钟时间，将您的感受和建议告诉我们，我们非常重视每位用户的宝贵意见，期待您的参与！现在马上开始吧！",
+                "prefixDiffStatus": 0,
+                "endDescription": "您已完成本次问卷，感谢您的帮助与支持",
+                "closeDescription": "该问卷已关闭，感谢您的关注",
+                "endImgSrc": "/static/img/end.png",
+                "closeImgSrc": "/static/img/close.png",
+                "customUrlType": 0,
+                "endType": 0,
+                "endURL": "",
+                "endButtonExist": 0,
+                "endButtonUrl": "",
+                "closeButtonExist": 0,
+                "closeButtonUrl": "",
+                "allowUserReadExamResult": 1,
+                "showExamResult": 1,
+                "redPackEnabled": 0,
+            }
+            for k, v in defaults.items():
+                if full_data.get(k) is None:
+                    full_data[k] = v
+            # 确保 questions 为数组（空问卷时为 None，save 会 500）
+            if full_data.get("questions") is None:
+                full_data["questions"] = []
+
+            lock_survey(session, base_url, new_id)
+            save_result = save_survey(session, base_url, full_data)
+            if save_result["status"] == "success":
+                _log("Survey defaults initialized successfully")
+            else:
+                _log(f"Warning: defaults initialization failed: {save_result.get('message')}")
+
+            # 触发预览 HTML 生成
+            time.sleep(1)
+            try:
+                pr = session.get(f"{base_url}{API_SURVEY_PREVIEW}", params={"id": new_id})
+                pd = pr.json() if pr.text.strip() else {}
+                if pd.get("resultCode") == 100:
+                    _log(f"Preview generated: {pd.get('data', '')}")
+                else:
+                    _log(f"Preview generation warning: {pd.get('resultDesc', '')}")
+            except Exception as e:
+                _log(f"Preview generation error (non-fatal): {e}")
+
     return {
         "status": "success",
         "message": "创建成功",
