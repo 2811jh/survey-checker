@@ -77,3 +77,78 @@ def _parse_option_values(text: str) -> list:
         return quoted
     # 无引号：按逗号分割
     return [v.strip() for v in text.split(",") if v.strip()]
+
+
+# ─── ID 匹配 ─────────────────────────────────────────────────────────────────
+
+def resolve_logic_rules(parsed_rules: list, questions: list):
+    """
+    将解析后的规则匹配为实际 ID。
+
+    返回: (resolved_list, errors_list)
+      resolved: [{"src_idx":0, "option_ids":[...], "target_ids":[...], "sub_question_ids":[...]}]
+      errors: ["错误描述", ...]
+    """
+    label_map = _build_label_map(questions)
+    resolved = []
+    errors = []
+
+    for rule in parsed_rules:
+        source = rule["source"]
+        # 1. 定位源题
+        src_idx = label_map.get(source)
+        if src_idx is None:
+            errors.append(f"源题未找到: {source}")
+            continue
+        src_q = questions[src_idx]
+
+        # 2. 定位目标题
+        target_ids = []
+        for tgt_label in rule["targets"]:
+            tgt_idx = label_map.get(tgt_label)
+            if tgt_idx is None:
+                errors.append(f"目标题未找到: {tgt_label}")
+                continue
+            target_ids.append(questions[tgt_idx]["id"])
+        if not target_ids:
+            continue
+
+        # 3. 匹配子问题 ID（矩阵题）
+        sub_question_ids = []
+        if rule.get("sub_questions"):
+            subs = src_q.get("subQuestions") or []
+            for seq in rule["sub_questions"]:
+                if 1 <= seq <= len(subs):
+                    sub_question_ids.append(subs[seq - 1]["id"])
+                else:
+                    errors.append(f"{source} 子问题序号 {seq} 越界（共 {len(subs)} 个子问题）")
+
+        # 4. 匹配选项/子选项 ID
+        option_ids = []
+        opt_values = rule.get("sub_options") or rule.get("options") or []
+        src_options = src_q.get("options") or []
+
+        for val in opt_values:
+            matched = False
+            for opt in src_options:
+                opt_text = _strip_html(opt.get("text", ""))
+                # 精确匹配（数值）或模糊匹配（文本）
+                if val == opt_text or val in opt_text:
+                    option_ids.append(opt["id"])
+                    matched = True
+                    break
+            if not matched:
+                errors.append(f"{source} 选项未匹配: '{val}'")
+
+        if not option_ids:
+            errors.append(f"{source} 无有效选项匹配，规则跳过")
+            continue
+
+        resolved.append({
+            "src_idx": src_idx,
+            "option_ids": option_ids,
+            "target_ids": target_ids,
+            "sub_question_ids": sub_question_ids,
+        })
+
+    return resolved, errors
