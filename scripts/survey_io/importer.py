@@ -298,6 +298,7 @@ def import_from_markdown(session, base_url, platform, survey_id, filepath):
     """
     解析 Markdown/文本文件并导入为问卷题目。
     调用 parse_question_file 解析，再调用 question_ops.add_questions 写入。
+    录入成功后，自动提取 [逻辑] 块并写入逻辑规则。
     """
     # 延迟导入避免循环依赖
     from operations.question_ops import add_questions
@@ -309,4 +310,32 @@ def import_from_markdown(session, base_url, platform, survey_id, filepath):
     if not specs:
         return {"status": "error", "message": "未解析到任何题目，请检查文件格式"}
 
-    return add_questions(session, base_url, platform, survey_id, specs)
+    result = add_questions(session, base_url, platform, survey_id, specs)
+
+    # ── 自动写入逻辑规则 ────────────────────────────────────────────
+    if result.get("status") == "success":
+        from operations.logic_writer import (
+            extract_logic_block, parse_logic_block,
+            resolve_logic_rules, write_logic_rules,
+        )
+        logic_lines = extract_logic_block(filepath)
+        if logic_lines:
+            _log(f"Found {len(logic_lines)} logic rules in [逻辑] block")
+            parsed = parse_logic_block(logic_lines)
+            if parsed:
+                survey_data = get_survey_full(session, base_url, survey_id)
+                if survey_data:
+                    questions = survey_data.get("questions") or []
+                    resolved, logic_errors = resolve_logic_rules(parsed, questions)
+                    if resolved:
+                        logic_result = write_logic_rules(
+                            session, base_url, survey_id, resolved
+                        )
+                        result["logic_result"] = logic_result
+                    if logic_errors:
+                        result["logic_errors"] = logic_errors
+                    _log(f"Logic: {len(resolved)} resolved, {len(logic_errors)} errors")
+        else:
+            _log("No [逻辑] block found in file")
+
+    return result
