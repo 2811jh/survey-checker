@@ -208,11 +208,13 @@ def build_question(spec, existing_questions):
     if qtype in ("star", "rect-star"):
         if spec.get("_is_nps"):
             q["nps"] = 1
-            q["starType"] = 1
+            q["starType"] = 4        # 数字样式（1=星形 2=爱心 3=点赞 4=数字 5=方块）
             q["star"] = 0
             q["starEnd"] = 10
             q["openScore"] = 1
             q["score"] = None
+            q["tag"] = "recommend_willing"   # NPS 题默认标签：评价-推荐意愿
+            q["tagCustom"] = "recommend_willing"   # 标签：评价-推荐意愿
         else:
             q["starType"] = q.get("starType") or 1
             q["star"] = q.get("star") or 1
