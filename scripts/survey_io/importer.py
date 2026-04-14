@@ -48,6 +48,9 @@ def parse_question_file(filepath):
 
     while i < len(lines):
         line = lines[i].strip()
+        # ⚠️ 遇到 [逻辑] 块标记，停止解析题目
+        if line == "[逻辑]":
+            break
         m = re.match(r"^(\d+)\[(.+?)\](.+)$", line)
         if m:
             if current:
@@ -159,7 +162,7 @@ def parse_question_file(filepath):
                 spec["middleDesc"] = parts[1].strip() if len(parts) > 1 else ""
                 spec["endDesc"] = parts[2].strip() if len(parts) > 2 else ""
             if score_line:
-                if "10" in score_line:
+                if score_line.upper() == "NPS" or "10" in score_line:
                     spec["options"] = [str(x) for x in range(0, 11)]
                     spec["_is_nps"] = True
                 else:

@@ -102,12 +102,18 @@ def resolve_logic_rules(parsed_rules: list, questions: list):
             continue
         src_q = questions[src_idx]
 
-        # 2. 定位目标题
+        # 2. 定位目标题（只允许控制位于源题之后的题目）
         target_ids = []
         for tgt_label in rule["targets"]:
             tgt_idx = label_map.get(tgt_label)
             if tgt_idx is None:
                 errors.append(f"目标题未找到: {tgt_label}")
+                continue
+            if tgt_idx <= src_idx:
+                errors.append(
+                    f"逻辑规则无效：{source}（位置 {src_idx + 1}）→ {tgt_label}（位置 {tgt_idx + 1}）"
+                    f"，目标题必须在源题之后，已跳过"
+                )
                 continue
             target_ids.append(questions[tgt_idx]["id"])
         if not target_ids:
