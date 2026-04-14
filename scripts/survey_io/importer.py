@@ -70,6 +70,9 @@ def parse_question_file(filepath):
                 if not next_line:
                     i += 1
                     continue
+                # ⚠️ 遇到文件级 [逻辑] 块标记，立即停止读取此题附属行
+                if next_line == "[逻辑]":
+                    break
                 if re.match(r"^\d+\[", next_line):
                     break
                 # 检测 [跳转逻辑] 块的开始/结束
