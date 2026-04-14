@@ -318,6 +318,7 @@ def import_from_markdown(session, base_url, platform, survey_id, filepath):
             extract_logic_block, parse_logic_block,
             resolve_logic_rules, write_logic_rules,
         )
+        from survey_io.fetcher import get_survey_full
         logic_lines = extract_logic_block(filepath)
         if logic_lines:
             _log(f"Found {len(logic_lines)} logic rules in [逻辑] block")
