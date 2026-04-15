@@ -181,7 +181,7 @@ def build_question(spec, existing_questions):
 
     # ── 隐含题 ───────────────────────────────────────────────────────────
     if qtype == "imply":
-        q["hidden"] = 1
+        q["hidden"] = 0   # ⚠️ 隐含题对答题者不可见由 type=imply 本身保证，hidden=1 会导致编辑界面按钮全部灰掉
         q["required"] = 1
         q["level"] = 1
         q["layout"] = 0
