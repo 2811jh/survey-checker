@@ -10,11 +10,40 @@
 """
 import re
 
-RED_SPAN = '<span style="color: #ba372a;">{}</span>'
+# 默认颜色
+DEFAULT_COLOR = "#ba372a"
+
+# 预设颜色表（名称 → HEX）
+COLOR_PRESETS = {
+    "red":    "#ba372a",
+    "blue":   "#2a6bba",
+    "green":  "#2a8c3e",
+    "orange": "#e67e22",
+    "purple": "#8e44ad",
+    "brown":  "#8b4513",
+    "gray":   "#7e8c8d",
+    "black":  "#000000",
+}
+
+COLOR_SPAN = '<span style="color: {};">{}</span>'
 
 
-def _wrap_red(text: str) -> str:
-    return RED_SPAN.format(text)
+def _resolve_color(color: str = None) -> str:
+    """解析颜色：支持预设名称（red/blue/...）或自定义 HEX（#xxxxxx）"""
+    if not color:
+        return DEFAULT_COLOR
+    lower = color.lower().strip().lstrip("#")
+    if lower in COLOR_PRESETS:
+        return COLOR_PRESETS[lower]
+    # 按 HEX 处理
+    hex_val = color.strip().lstrip("#")
+    if len(hex_val) in (3, 6) and all(c in "0123456789abcdefABCDEF" for c in hex_val):
+        return f"#{hex_val}"
+    return DEFAULT_COLOR
+
+
+def _wrap_color(text: str, color: str = DEFAULT_COLOR) -> str:
+    return COLOR_SPAN.format(color, text)
 
 
 # 语义规则（按 5 类优先级排列，长短语优先，每条规则只替换一次）
@@ -38,10 +67,11 @@ _PATTERNS = [
 ]
 
 
-def _apply_red(text: str, max_marks: int = 2) -> str:
-    """对单段纯文本按语义规则添加红色标记，最多 max_marks 个。"""
+def _apply_color(text: str, max_marks: int = 2, color: str = None) -> str:
+    """对单段纯文本按语义规则添加颜色标记，最多 max_marks 个。"""
     if not text or not text.strip():
         return text
+    resolved = _resolve_color(color)
     stripped = text.strip()
     # 跳过纯数字/短文字
     if re.fullmatch(r'[\d\s\-\/~～至到]+', stripped):
@@ -64,7 +94,7 @@ def _apply_red(text: str, max_marks: int = 2) -> str:
             prefix = result[:m.start()]
             if prefix.count('<span') > prefix.count('</span>'):
                 continue
-            new_result, n = re.subn(re.escape(keyword), _wrap_red(keyword), result, count=1)
+            new_result, n = re.subn(re.escape(keyword), _wrap_color(keyword, resolved), result, count=1)
             if n > 0:
                 result = new_result
                 marked += 1
@@ -72,8 +102,13 @@ def _apply_red(text: str, max_marks: int = 2) -> str:
     return result
 
 
-def _apply_red_to_title(title: str, max_marks: int = 2) -> str:
-    """对题干应用标红，只处理第一个 HTML 块之前的纯文字部分。"""
+# 向后兼容别名
+def _apply_red(text: str, max_marks: int = 2) -> str:
+    return _apply_color(text, max_marks, color=None)
+
+
+def _apply_color_to_title(title: str, max_marks: int = 2, color: str = None) -> str:
+    """对题干应用颜色标记，只处理第一个 HTML 块之前的纯文字部分。"""
     if not title:
         return title
     cut_pos = len(title)
@@ -81,15 +116,18 @@ def _apply_red_to_title(title: str, max_marks: int = 2) -> str:
         pos = title.find(tag)
         if pos != -1 and pos < cut_pos:
             cut_pos = pos
-    return _apply_red(title[:cut_pos], max_marks) + title[cut_pos:]
+    return _apply_color(title[:cut_pos], max_marks, color) + title[cut_pos:]
 
 
-def apply_red_keywords(title, options=None, sub_questions=None, max_per_unit=2):
+def apply_red_keywords(title, options=None, sub_questions=None, max_per_unit=2, color=None):
     """
-    对题干、选项、子问题标题应用红色关键词标记。
+    对题干、选项、子问题标题应用颜色关键词标记。
     返回 (new_title, new_options, new_sub_questions)
+
+    color: 颜色名称（red/blue/green/...）或 HEX 值（#ba372a），默认红色
     """
-    new_title = _apply_red_to_title(title or '', max_per_unit)
+    resolved = _resolve_color(color)
+    new_title = _apply_color_to_title(title or '', max_per_unit, resolved)
 
     new_options = None
     if options is not None:
@@ -100,10 +138,10 @@ def apply_red_keywords(title, options=None, sub_questions=None, max_per_unit=2):
                 new_opt = dict(opt)
                 # 跳过纯数字选项和以【】开头的分类标签选项（避免结构性标签被标红）
                 skip = raw.strip().isdigit() or re.match(r'^【[^】]+】', raw.strip())
-                new_opt['text'] = _apply_red(raw, max_per_unit) if not skip else raw
+                new_opt['text'] = _apply_color(raw, max_per_unit, resolved) if not skip else raw
                 new_options.append(new_opt)
             else:
-                new_options.append(_apply_red(str(opt), max_per_unit))
+                new_options.append(_apply_color(str(opt), max_per_unit, resolved))
 
     new_subs = None
     if sub_questions is not None:
@@ -114,10 +152,10 @@ def apply_red_keywords(title, options=None, sub_questions=None, max_per_unit=2):
                 # 跳过以【】开头的分类标签子问题（避免结构性标签被标红）
                 sub_title = sub.get('title', '')
                 skip = re.match(r'^【[^】]+】', sub_title.strip())
-                new_sub['title'] = _apply_red(sub_title, max_per_unit) if not skip else sub_title
+                new_sub['title'] = _apply_color(sub_title, max_per_unit, resolved) if not skip else sub_title
                 new_subs.append(new_sub)
             else:
-                new_subs.append(_apply_red(str(sub), max_per_unit))
+                new_subs.append(_apply_color(str(sub), max_per_unit, resolved))
 
     return new_title, new_options, new_subs
 

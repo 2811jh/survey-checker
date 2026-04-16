@@ -250,7 +250,8 @@ def main():
     stp = subs.add_parser("style", help="为问卷题目应用样式：红色关键词/插入图片")
     stp.add_argument("--id", type=int, required=True)
     stp.add_argument("--questions", default=None, help="题目范围,逗号分隔(如Q1,Q3)")
-    stp.add_argument("--red", action="store_true", help="自动标红关键词")
+    stp.add_argument("--red", action="store_true", help="自动标记关键词（默认红色）")
+    stp.add_argument("--color", default=None, help="关键词颜色：预设名(red/blue/green/orange/purple/brown/gray/black)或HEX值(#ba372a)，默认red")
     stp.add_argument("--image", default=None, help="图片CDN URL,插入到题干")
     stp.add_argument("--image-height", type=int, default=80)
     stp.add_argument("--image-target", choices=["title","sub"], default="title")
@@ -372,12 +373,13 @@ def main():
             changed = False
             entry = {"label": q_label, "type": q_type, "changes": []}
 
-            # 红色关键词
+            # 颜色关键词标记
             if args.red:
                 new_title, new_opts, new_subs = apply_red_keywords(
                     q.get("title", ""),
                     q.get("options"),
                     q.get("subQuestions"),
+                    color=args.color,
                 )
                 if new_title != q.get("title", ""):
                     q["title"] = new_title
