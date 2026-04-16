@@ -17,18 +17,24 @@ def _wrap_red(text: str) -> str:
     return RED_SPAN.format(text)
 
 
-# 语义规则（长短语优先，每条规则只替换一次）
+# 语义规则（按 5 类优先级排列，长短语优先，每条规则只替换一次）
 _PATTERNS = [
+    # ── 第 1 类：评价/态度关键词（最高优先级） ──
+    (r'(整体满意度)', 1),
+    (r'(满意度|满意程度)', 1),
     (r'(不太满意|不满意|不好|不足|不够|不清晰|不流畅|不顺畅|不便捷|不合理|不喜欢|不明显)', 1),
-    (r'(整体满意度|整体评价|整体体验|整体满意)', 1),
-    (r'(满意度|满意)', 1),
-    (r'(性能问题|卡顿[、，,]?闪退等|卡顿|闪退|延迟|BUG|崩溃|黑屏|卡死|异常)', 1),
-    (r'(频率|频繁|几乎每次)', 1),
-    (r'(界面使用|付费体验|付费|社交体验|玩法体验|操作体验)', 1),
-    (r'[""]([^""]{2,15})[""]', 1),
-    (r'(主要原因|建议|意见)', 1),
     (r'(愿意推荐|推荐)', 1),
-    (r'(目前|近一个月|近期)', 1),
+    # ── 第 2 类：功能模块关键词 ──
+    (r'(界面使用|美术画面|付费体验|社交体验|玩法体验|操作体验)', 1),
+    (r'(匹配机制|战斗平衡性|玩法乐趣)', 1),
+    # ── 第 3 类：技术/性能关键词 ──
+    (r'(性能问题)', 1),
+    (r'(卡顿|闪退|延迟|BUG|崩溃|黑屏|卡死|异常|发热)', 1),
+    # ── 第 4 类：时间范围关键词 ──
+    (r'(近一个月|近两周|近一周|近半年|近一年|近期|本赛季|目前)', 1),
+    # ── 第 5 类：行动/反馈关键词（最低优先级） ──
+    (r'(主要原因|建议|意见)', 1),
+    (r'(频率|频繁|几乎每次)', 1),
 ]
 
 
@@ -92,7 +98,9 @@ def apply_red_keywords(title, options=None, sub_questions=None, max_per_unit=2):
             if isinstance(opt, dict):
                 raw = opt.get('text', '')
                 new_opt = dict(opt)
-                new_opt['text'] = _apply_red(raw, max_per_unit) if not raw.strip().isdigit() else raw
+                # 跳过纯数字选项和以【】开头的分类标签选项（避免结构性标签被标红）
+                skip = raw.strip().isdigit() or re.match(r'^【[^】]+】', raw.strip())
+                new_opt['text'] = _apply_red(raw, max_per_unit) if not skip else raw
                 new_options.append(new_opt)
             else:
                 new_options.append(_apply_red(str(opt), max_per_unit))
@@ -103,7 +111,10 @@ def apply_red_keywords(title, options=None, sub_questions=None, max_per_unit=2):
         for sub in sub_questions:
             if isinstance(sub, dict):
                 new_sub = dict(sub)
-                new_sub['title'] = _apply_red(sub.get('title', ''), max_per_unit)
+                # 跳过以【】开头的分类标签子问题（避免结构性标签被标红）
+                sub_title = sub.get('title', '')
+                skip = re.match(r'^【[^】]+】', sub_title.strip())
+                new_sub['title'] = _apply_red(sub_title, max_per_unit) if not skip else sub_title
                 new_subs.append(new_sub)
             else:
                 new_subs.append(_apply_red(str(sub), max_per_unit))

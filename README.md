@@ -149,6 +149,7 @@ python survey_checker.py -p global fetch --id 44583
 | `autofix` | calibrate 的别名 | `survey_checker.py autofix --id 91112` |
 | `modify` | 修改问卷设置 | `survey_checker.py modify --id 91112 --json '[...]'` |
 | `logic` | 设置逻辑规则 | `survey_checker.py logic --id 91112 --json '[...]'` |
+| `style` | 文本样式标红 | `survey_checker.py style --id 91112 --red [--dry-run]` |
 
 > 💡 所有写入操作（modify / calibrate / import / add / clear）执行前会自动锁定问卷，保存后自动验证。如果浏览器编辑器正在打开，需要先关闭才能执行。
 
