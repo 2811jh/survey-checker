@@ -100,7 +100,14 @@ def parse_question_file(filepath):
     # 转换为 spec 列表
     result = []
     for q in raw_questions:
-        spec = {"type": q["type"], "title": q["title"]}
+        # ── 标题中内嵌的 * 提示自动拆为 <br> 换行 ──
+        # 如 "您对xxx的满意度？ *1星表示非常不满意..." → 拆成标题 + <br> + *提示
+        raw_title = q["title"]
+        star_match = re.search(r'\s+(\*[^*].{4,})$', raw_title)
+        if star_match:
+            raw_title = raw_title[:star_match.start()] + "<br>" + star_match.group(1).strip()
+
+        spec = {"type": q["type"], "title": raw_title}
         extra = q["_lines"]
 
         if q["type"] == "paging":
