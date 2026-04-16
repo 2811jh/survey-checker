@@ -28,6 +28,8 @@ def parse_question_file(filepath):
     raw_questions = []
     current = None
     i = 0
+    survey_title = ""
+    survey_desc = ""
 
     type_map = {
         "量表题": "star", "矩形量表题": "rect-star",
@@ -38,10 +40,15 @@ def parse_question_file(filepath):
         "隐含问题": "imply",
     }
 
-    # 跳过文件头部 [问卷标题] / [问卷说明] 行
+    # 提取文件头部 [问卷标题] / [问卷说明]
     while i < len(lines):
         line = lines[i].strip()
-        if line.startswith("[问卷标题]") or line.startswith("[问卷说明]"):
+        if line.startswith("[问卷标题]"):
+            survey_title = line.replace("[问卷标题]", "").strip()
+            i += 1
+            continue
+        elif line.startswith("[问卷说明]"):
+            survey_desc = line.replace("[问卷说明]", "").strip()
             i += 1
             continue
         break
@@ -305,13 +312,34 @@ def _parse_logic_lines(logic_lines: list) -> list:
     return rules
 
 
+# ─── 提取文件头部信息 ─────────────────────────────────────────────────────────
+
+def extract_survey_meta(filepath):
+    """
+    从标准格式文件中提取 [问卷标题] 和 [问卷说明]。
+    返回 {"survey_title": str, "survey_desc": str}
+    """
+    survey_title = ""
+    survey_desc = ""
+    with open(filepath, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line.startswith("[问卷标题]"):
+                survey_title = line.replace("[问卷标题]", "").strip()
+            elif line.startswith("[问卷说明]"):
+                survey_desc = line.replace("[问卷说明]", "").strip()
+            elif line and not line.startswith("[问卷"):
+                break  # 头部结束
+    return {"survey_title": survey_title, "survey_desc": survey_desc}
+
+
 # ─── 导入入口 ─────────────────────────────────────────────────────────────────
 
 def import_from_markdown(session, base_url, platform, survey_id, filepath):
     """
     解析 Markdown/文本文件并导入为问卷题目。
     调用 parse_question_file 解析，再调用 question_ops.add_questions 写入。
-    录入成功后，自动提取 [逻辑] 块并写入逻辑规则。
+    录入成功后，自动写入问卷标题/说明，并提取 [逻辑] 块写入逻辑规则。
     """
     # 延迟导入避免循环依赖
     from operations.question_ops import add_questions
@@ -324,6 +352,30 @@ def import_from_markdown(session, base_url, platform, survey_id, filepath):
         return {"status": "error", "message": "未解析到任何题目，请检查文件格式"}
 
     result = add_questions(session, base_url, platform, survey_id, specs)
+
+    # ── 自动写入问卷标题和说明 ─────────────────────────────────────
+    if result.get("status") == "success":
+        from survey_io.fetcher import get_survey_full
+        from operations.survey_ops import lock_survey, save_survey
+        meta = extract_survey_meta(filepath)
+        s_title = meta.get("survey_title", "")
+        s_desc = meta.get("survey_desc", "")
+        if s_title or s_desc:
+            _log(f"Writing survey title/desc: title={s_title[:30]}..., desc={s_desc[:30]}...")
+            survey_data = get_survey_full(session, base_url, survey_id)
+            if survey_data:
+                if s_title:
+                    survey_data["surveyTitle"] = s_title
+                if s_desc:
+                    survey_data["prefix"] = s_desc
+                lock_survey(session, base_url, survey_id)
+                save_result = save_survey(session, base_url, survey_data)
+                if save_result["status"] == "success":
+                    _log("Survey title/desc written successfully")
+                    result["survey_title"] = s_title
+                    result["survey_desc"] = s_desc[:50] + "..." if len(s_desc) > 50 else s_desc
+                else:
+                    _log(f"Warning: title/desc write failed: {save_result.get('message')}")
 
     # ── 自动写入逻辑规则 ────────────────────────────────────────────
     if result.get("status") == "success":
