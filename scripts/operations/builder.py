@@ -28,7 +28,7 @@ def _default_skeleton(qtype):
         "hidden": 0,
         "random": 0,
         "randomColumn": 0,
-        "maxRow": 3 if qtype == "blank" else 1,
+        "maxRow": 2 if qtype == "blank" else 1,
         "maxLength": -1,
         "maxShowLength": -1,
         "minLength": -1,

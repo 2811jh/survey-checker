@@ -246,6 +246,16 @@ def main():
     clp.add_argument("--id", type=int, required=True)
     clp.add_argument("--keep-imply", action="store_true")
 
+    # style
+    stp = subs.add_parser("style", help="为问卷题目应用样式：红色关键词/插入图片")
+    stp.add_argument("--id", type=int, required=True)
+    stp.add_argument("--questions", default=None, help="题目范围,逗号分隔(如Q1,Q3)")
+    stp.add_argument("--red", action="store_true", help="自动标红关键词")
+    stp.add_argument("--image", default=None, help="图片CDN URL,插入到题干")
+    stp.add_argument("--image-height", type=int, default=80)
+    stp.add_argument("--image-target", choices=["title","sub"], default="title")
+    stp.add_argument("--dry-run", action="store_true")
+
     args = parser.parse_args()
     if not args.command:
         parser.print_help()
@@ -331,6 +341,107 @@ def main():
                 checker.session, checker.base_url, checker.platform,
                 args.id, args.file,
             ))
+
+    elif args.command == "style":
+        from operations.text_styler import (
+            apply_red_keywords, build_image_html_for_title, build_image_html_for_sub,
+        )
+        from core.utils import _build_label_map
+
+        survey_data = get_survey_full(checker.session, checker.base_url, args.id)
+        if not survey_data:
+            _json_output({"status": "error", "message": "获取问卷数据失败"})
+            sys.exit(1)
+
+        questions = survey_data.get("questions") or []
+        label_map = _build_label_map(questions)
+
+        target_labels = None
+        if args.questions:
+            target_labels = {l.strip() for l in args.questions.split(",") if l.strip()}
+
+        change_log = []
+        for idx, q in enumerate(questions):
+            q_type = q.get("type", "")
+            if q_type in ("imply", "paging"):
+                continue
+            q_label = next((lbl for lbl, i in label_map.items() if i == idx), None)
+            if target_labels is not None and q_label not in target_labels:
+                continue
+
+            changed = False
+            entry = {"label": q_label, "type": q_type, "changes": []}
+
+            # 红色关键词
+            if args.red:
+                new_title, new_opts, new_subs = apply_red_keywords(
+                    q.get("title", ""),
+                    q.get("options"),
+                    q.get("subQuestions"),
+                )
+                if new_title != q.get("title", ""):
+                    q["title"] = new_title
+                    entry["changes"].append("title 标红")
+                    changed = True
+                if new_opts:
+                    for i2, (old_o, new_o) in enumerate(zip(q.get("options") or [], new_opts)):
+                        if old_o.get("text") != new_o.get("text"):
+                            questions[idx]["options"][i2] = new_o
+                            entry["changes"].append(f"option[{i2}] 标红")
+                            changed = True
+                if new_subs:
+                    for i2, (old_s, new_s) in enumerate(zip(q.get("subQuestions") or [], new_subs)):
+                        if old_s.get("title") != new_s.get("title"):
+                            questions[idx]["subQuestions"][i2] = new_s
+                            entry["changes"].append(f"sub[{i2}] 标红")
+                            changed = True
+
+            # 图片插入
+            if args.image:
+                img_url = args.image
+                img_h = args.image_height
+                existing = q.get("title", "")
+                if args.image_target == "title" and img_url not in existing:
+                    img_html = build_image_html_for_title(img_url, img_h)
+                    cut = len(existing)
+                    for tag in ['<br>', '<img ', '<p>']:
+                        pos = existing.find(tag)
+                        if pos != -1 and pos < cut:
+                            cut = pos
+                    q["title"] = existing[:cut] + img_html + existing[cut:]
+                    entry["changes"].append(f"title 插入图片 height={img_h}px")
+                    changed = True
+                elif args.image_target == "sub":
+                    for i2, sub in enumerate(q.get("subQuestions") or []):
+                        sub_title = sub.get("title", "") if isinstance(sub, dict) else ""
+                        if img_url not in sub_title:
+                            img_html = build_image_html_for_sub(img_url, img_h)
+                            questions[idx]["subQuestions"][i2]["title"] = sub_title + img_html
+                            entry["changes"].append(f"sub[{i2}] 插入图片")
+                            changed = True
+
+            if changed:
+                change_log.append(entry)
+
+        if not change_log:
+            _json_output({"status": "no_change", "message": "没有题目需要修改"})
+            sys.exit(0)
+
+        if args.dry_run:
+            _json_output({"status": "dry_run", "would_modify": len(change_log), "log": change_log})
+            sys.exit(0)
+
+        lock_survey(checker.session, checker.base_url, args.id)
+        save_result = save_survey(checker.session, checker.base_url, survey_data)
+        if save_result.get("status") != "success":
+            _json_output({"status": "error", "message": save_result.get("message", "保存失败")})
+            sys.exit(1)
+        _json_output({
+            "status": "success",
+            "message": f"成功为 {len(change_log)} 道题应用样式",
+            "modified": len(change_log),
+            "log": change_log,
+        })
 
 
 if __name__ == "__main__":
